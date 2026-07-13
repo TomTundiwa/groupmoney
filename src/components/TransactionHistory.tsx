@@ -55,7 +55,7 @@ export default function TransactionHistory({
 
   // Edit States for Transactions
   const [editingTxId, setEditingTxId] = useState<string | null>(null);
-  const [editAmount, setEditAmount] = useState<number>(0);
+  const [editAmount, setEditAmount] = useState<number | string>(0);
   const [editMemberId, setEditMemberId] = useState<string>("");
   const [editBank, setEditBank] = useState<string>("");
   const [editNotes, setEditNotes] = useState<string>("");
@@ -77,9 +77,10 @@ export default function TransactionHistory({
   };
 
   const handleSaveEditTx = (id: string) => {
-    if (editAmount <= 0) return;
+    const parsedAmount = typeof editAmount === "string" ? parseFloat(editAmount) : editAmount;
+    if (isNaN(parsedAmount) || parsedAmount <= 0) return;
     if (onEditTransaction) {
-      onEditTransaction(id, editAmount, editMemberId, editBank, editNotes, editDate, editTime);
+      onEditTransaction(id, parsedAmount, editMemberId, editBank, editNotes, editDate, editTime);
     }
     setEditingTxId(null);
   };
@@ -338,7 +339,7 @@ export default function TransactionHistory({
                         type="number"
                         step="any"
                         value={editAmount}
-                        onChange={(e) => setEditAmount(parseFloat(e.target.value) || 0)}
+                        onChange={(e) => setEditAmount(e.target.value)}
                         className="w-20 px-1.5 py-1 bg-slate-900 border border-slate-700 rounded text-xs text-right font-mono text-emerald-400 focus:outline-none focus:border-emerald-500"
                       />
                     </td>

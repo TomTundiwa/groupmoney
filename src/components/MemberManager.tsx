@@ -34,7 +34,7 @@ export default function MemberManager({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [editNickname, setEditNickname] = useState("");
-  const [editTotalPaid, setEditTotalPaid] = useState<number>(0);
+  const [editTotalPaid, setEditTotalPaid] = useState<number | string>(0);
 
   const handleStartEdit = (m: any) => {
     setEditingId(m.id);
@@ -53,7 +53,13 @@ export default function MemberManager({
   const handleSaveEdit = (id: string) => {
     if (!editNickname.trim()) return;
     if (onEditMember) {
-      onEditMember(id, editName.trim() || editNickname.trim(), editNickname.trim(), editTotalPaid);
+      const parsedAmount = typeof editTotalPaid === "string" ? parseFloat(editTotalPaid) : editTotalPaid;
+      onEditMember(
+        id,
+        editName.trim() || editNickname.trim(),
+        editNickname.trim(),
+        isNaN(parsedAmount) ? 0 : parsedAmount
+      );
     }
     handleCancelEdit();
   };
@@ -211,7 +217,7 @@ export default function MemberManager({
                       type="number"
                       step="any"
                       value={editTotalPaid}
-                      onChange={(e) => setEditTotalPaid(parseFloat(e.target.value) || 0)}
+                      onChange={(e) => setEditTotalPaid(e.target.value)}
                       placeholder="ยอดโอนสะสม"
                       className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-emerald-400 font-mono focus:outline-none focus:border-emerald-500"
                     />
@@ -300,7 +306,7 @@ export default function MemberManager({
                           handleStartEdit(m);
                         }}
                         className="p-1 text-slate-500 hover:text-emerald-400 rounded-lg hover:bg-emerald-500/10 transition"
-                        title="แก้ไขข้อมูลชื่อ"
+                        title="แก้ไขชื่อและยอดเงินสะสมของสมาชิก"
                       >
                         <Edit2 className="w-3 h-3" />
                       </button>

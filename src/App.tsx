@@ -62,8 +62,8 @@ export default function App() {
     }
   });
 
-  // Compute leader status dynamically (Creator has leader status, and users have leader status over the demo group to manage/delete it)
-  const isLeader = createdGroupIds.includes(activeGroupId) || activeGroupId === "demo-group";
+  // Compute leader status dynamically (Creator has leader status)
+  const isLeader = createdGroupIds.includes(activeGroupId);
 
   // Save unlocked group IDs and created group IDs to localStorage when changed
   useEffect(() => {
@@ -213,65 +213,7 @@ export default function App() {
     updateDeviceCloud();
   }, [createdGroupIds, unlockedGroupIds, activeGroupId, deviceId]);
 
-  // Auto-seed Demo group (ก๊วนเรียนรู้) if there are 0 groups in the system and not dismissed
-  useEffect(() => {
-    if (groups.length === 0 && !localStorage.getItem("sb_demo_dismissed")) {
-      const seedDemoGroup = async () => {
-        try {
-          const demoGroup: Group = {
-            id: "demo-group",
-            name: "ก๊วนทดลองเรียนรู้ (SlipBuddy Demo) 🎓",
-            targetAmountPerMember: 150,
-            description: "กลุ่มเรียนรู้การใช้งานสแกนสลิปและเช็คยอดเงิน ลองอัปโหลดสลิปจำลองเล่นได้เลยครับ!",
-            passcode: "demo",
-            createdAt: new Date().toISOString()
-          };
 
-          const demoMembers: Member[] = [
-            { id: "m-demo-1", groupId: "demo-group", name: "สมยศ ใจโอน", nickname: "พี่สมยศ", createdAt: new Date().toISOString() },
-            { id: "m-demo-2", groupId: "demo-group", name: "อนงค์ รักเรียน", nickname: "น้องอนงค์", createdAt: new Date().toISOString() },
-            { id: "m-demo-3", groupId: "demo-group", name: "สมชาย สายโอน", nickname: "สมชาย", createdAt: new Date().toISOString() }
-          ];
-
-          const demoTransactions: Transaction[] = [
-            {
-              id: "t-demo-1",
-              groupId: "demo-group",
-              memberId: "m-demo-1",
-              amount: 150,
-              date: new Date().toISOString().split("T")[0],
-              time: "10:30",
-              bank: "ธนาคารกสิกรไทย",
-              senderNameText: "นาย สมยศ ใจโอน",
-              isAiParsed: true,
-              notes: "สลิปจำลองระบุชื่อ สมยศ โอนเงินสำเร็จ",
-              createdAt: new Date().toISOString()
-            }
-          ];
-
-          const batch = writeBatch(db);
-          batch.set(doc(db, "groups", "demo-group"), demoGroup);
-          demoMembers.forEach((m) => {
-            batch.set(doc(db, "members", m.id), m);
-          });
-          demoTransactions.forEach((t) => {
-            batch.set(doc(db, "transactions", t.id), t);
-          });
-          await batch.commit();
-
-          // Auto unlock for first-time device
-          setUnlockedGroupIds((prev) => {
-            const next = prev.includes("demo-group") ? prev : [...prev, "demo-group"];
-            localStorage.setItem("sb_unlocked_groups", JSON.stringify(next));
-            return next;
-          });
-        } catch (e) {
-          console.error("Error seeding demo group:", e);
-        }
-      };
-      seedDemoGroup();
-    }
-  }, [groups]);
 
   // Ensure activeGroupId is always set to a visible group
   useEffect(() => {
@@ -757,26 +699,7 @@ export default function App() {
 
                 {/* Right side: Admin Management (For Leader / Non-leader views) */}
                 <div className="shrink-0 md:pl-6 md:border-l md:border-slate-800/80">
-                  {activeGroupId === "demo-group" ? (
-                    <div className="flex flex-col items-start md:items-end justify-center space-y-2.5">
-                      <div className="flex items-center gap-1.5 text-xs text-amber-400 font-bold bg-amber-400/5 px-3 py-1.5 rounded-xl border border-amber-400/10 shadow-sm font-sans animate-pulse">
-                        <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
-                        <span>🎓 โหมดทดลองระบบ (Demo Group)</span>
-                      </div>
-                      <p className="text-[11px] text-slate-400 text-left md:text-right leading-relaxed max-w-xs font-sans animate-pulse">
-                        เมื่อคุณเข้าใจระบบและพร้อมเปิดใช้งานจริงกับเพื่อนๆ แล้ว สามารถกดปุ่มลบก๊วนจำลองนี้ออกอย่างถาวรได้เลยครับ!
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => setShowMainDeleteConfirm(true)}
-                        className="flex items-center gap-2 px-4 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/20 hover:border-rose-500/40 rounded-xl text-xs font-sans font-bold transition duration-200 cursor-pointer shadow-sm"
-                        title="ลบก๊วนทดลองเพื่อเตรียมเริ่มใช้งานจริง"
-                      >
-                        <Trash2 className="w-3.5 h-3.5 text-rose-400" />
-                        <span>ลบก๊วนทดลองเพื่อเตรียมใช้จริง 🚀</span>
-                      </button>
-                    </div>
-                  ) : isLeader ? (
+                  {isLeader ? (
                     <div className="flex flex-col items-start md:items-end justify-center space-y-2.5">
                       <div className="flex items-center gap-1.5 text-xs text-amber-400 font-bold bg-amber-400/5 px-3 py-1.5 rounded-xl border border-amber-400/10 shadow-sm font-sans">
                         <Crown className="w-4 h-4 text-amber-400 shrink-0" />
