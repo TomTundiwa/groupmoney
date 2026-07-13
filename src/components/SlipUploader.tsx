@@ -74,8 +74,28 @@ export default function SlipUploader({ members, onUploadSuccess, activeGroupId }
 
   // Convert file to Base64 and send to server API for Gemini processing
   const processFile = async (file: File) => {
-    if (!file.type.startsWith("image/")) {
-      setError("กรุณาอัปโหลดไฟล์รูปภาพสลิปที่ถูกต้อง (JPEG, PNG, etc.)");
+    let mimeType = file.type;
+    const fileName = file.name.toLowerCase();
+
+    // Fallbacks for files without mimeType resolved by the browser (e.g. some HEIC/HEIF or PDFs)
+    if (!mimeType) {
+      if (fileName.endsWith(".heic")) mimeType = "image/heic";
+      else if (fileName.endsWith(".heif")) mimeType = "image/heif";
+      else if (fileName.endsWith(".pdf")) mimeType = "application/pdf";
+      else if (fileName.endsWith(".png")) mimeType = "image/png";
+      else if (fileName.endsWith(".webp")) mimeType = "image/webp";
+      else if (fileName.endsWith(".jpg") || fileName.endsWith(".jpeg")) mimeType = "image/jpeg";
+      else mimeType = "image/jpeg"; // default fallback
+    }
+
+    const isSupported = 
+      mimeType.startsWith("image/") || 
+      mimeType === "application/pdf" || 
+      fileName.endsWith(".heic") || 
+      fileName.endsWith(".heif");
+
+    if (!isSupported) {
+      setError("กรุณาอัปโหลดไฟล์สลิปที่ถูกต้อง (รองรับรูปภาพ JPEG, PNG, WEBP, HEIC และไฟล์ PDF)");
       return;
     }
 
@@ -94,7 +114,7 @@ export default function SlipUploader({ members, onUploadSuccess, activeGroupId }
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           imageBase64: base64,
-          mimeType: file.type,
+          mimeType: mimeType,
         }),
       });
 
@@ -265,7 +285,7 @@ export default function SlipUploader({ members, onUploadSuccess, activeGroupId }
               type="file"
               ref={fileInputRef}
               onChange={handleFileChange}
-              accept="image/*"
+              accept="image/*,application/pdf,.heic,.heif"
               className="hidden"
             />
             <UploadCloud className={`w-12 h-12 mb-3 transition ${isDragOver ? "text-emerald-400 scale-110 animate-bounce" : "text-slate-500"}`} />
@@ -273,7 +293,7 @@ export default function SlipUploader({ members, onUploadSuccess, activeGroupId }
               ลากและวางรูปภาพสลิปที่นี่ หรือคลิกเพื่อเลือกไฟล์
             </p>
             <p className="text-xs text-slate-500 font-sans text-center mt-1.5">
-              รองรับไฟล์นามสกุล PNG, JPG, WEBP ระบบจะสแกน ชื่อคนโอน ยอดโอน วันเวลา และจับคู่กับเพื่อนอัตโนมัติ
+              รองรับรูปภาพ (PNG, JPG, WEBP, HEIC) และไฟล์ PDF ระบบจะสแกน ชื่อคนโอน ยอดโอน วันเวลา และจับคู่กับเพื่อนอัตโนมัติ
             </p>
 
             {error && (

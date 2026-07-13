@@ -40,8 +40,8 @@ app.post("/api/parse-slip", async (req, res) => {
       });
     }
 
-    // Clean base64 string
-    const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, "");
+    // Clean base64 string robustly for any media type (images, PDFs, etc.)
+    const base64Data = imageBase64.includes(",") ? imageBase64.split(",")[1] : imageBase64;
 
     // Structured prompt for bank slip details extraction with extreme accuracy rules
     const prompt = `Analyze this Thai bank transfer slip image and accurately extract the transaction details.
