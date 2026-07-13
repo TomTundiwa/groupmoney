@@ -3,6 +3,7 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
+import heicConvert from "heic-convert";
 
 dotenv.config();
 
@@ -42,6 +43,31 @@ app.post("/api/parse-slip", async (req, res) => {
 
     // Clean base64 string robustly for any media type (images, PDFs, etc.)
     const base64Data = imageBase64.includes(",") ? imageBase64.split(",")[1] : imageBase64;
+
+    let finalMimeType = mimeType;
+    let finalBase64Data = base64Data;
+
+    if (
+      mimeType === "image/heic" ||
+      mimeType === "image/heif" ||
+      mimeType.includes("heic") ||
+      mimeType.includes("heif")
+    ) {
+      try {
+        console.log("HEIC/HEIF format detected. Converting to JPEG server-side...");
+        const inputBuffer = Buffer.from(base64Data, "base64");
+        const outputBuffer = await heicConvert({
+          buffer: inputBuffer,
+          format: "JPEG",
+          quality: 0.8,
+        });
+        finalBase64Data = Buffer.from(outputBuffer).toString("base64");
+        finalMimeType = "image/jpeg";
+        console.log("HEIC/HEIF converted to JPEG successfully.");
+      } catch (convErr: any) {
+        console.error("Error during server-side HEIC conversion:", convErr);
+      }
+    }
 
     // Structured prompt for bank slip details extraction with extreme accuracy rules
     const prompt = `Analyze this Thai bank transfer slip image and accurately extract the transaction details.
@@ -83,8 +109,8 @@ Follow these strict rules to ensure absolute accuracy:
 
     const imagePart = {
       inlineData: {
-        mimeType: mimeType,
-        data: base64Data,
+        mimeType: finalMimeType,
+        data: finalBase64Data,
       },
     };
 

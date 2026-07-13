@@ -39,6 +39,7 @@ export default function SlipUploader({ members, onUploadSuccess, activeGroupId }
   } | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
 
   const handleCopyAccount = () => {
     navigator.clipboard.writeText("132-2539319");
@@ -288,13 +289,32 @@ export default function SlipUploader({ members, onUploadSuccess, activeGroupId }
               accept="image/*,application/pdf,.heic,.heif"
               className="hidden"
             />
-            <UploadCloud className={`w-12 h-12 mb-3 transition ${isDragOver ? "text-emerald-400 scale-110 animate-bounce" : "text-slate-500"}`} />
+            <input
+              type="file"
+              ref={cameraInputRef}
+              onChange={handleFileChange}
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+            />
+            <UploadCloud className={`w-12 h-12 mb-2 transition ${isDragOver ? "text-emerald-400 scale-110 animate-bounce" : "text-slate-500"}`} />
             <p className="text-sm font-semibold text-slate-200 font-sans text-center">
               ลากและวางรูปภาพสลิปที่นี่ หรือคลิกเพื่อเลือกไฟล์
             </p>
-            <p className="text-xs text-slate-500 font-sans text-center mt-1.5">
+            <p className="text-xs text-slate-500 font-sans text-center mt-1.5 max-w-md">
               รองรับรูปภาพ (PNG, JPG, WEBP, HEIC) และไฟล์ PDF ระบบจะสแกน ชื่อคนโอน ยอดโอน วันเวลา และจับคู่กับเพื่อนอัตโนมัติ
             </p>
+
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                cameraInputRef.current?.click();
+              }}
+              className="mt-3.5 px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-slate-950 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-md active:scale-95"
+            >
+              <span>📷</span> ถ่ายรูปสลิปจากกล้องโดยตรง
+            </button>
 
             {error && (
               <div className="mt-4 p-4 bg-slate-950/80 border border-rose-500/20 rounded-xl space-y-3 w-full text-left" onClick={(e) => e.stopPropagation()}>
