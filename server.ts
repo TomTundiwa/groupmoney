@@ -43,18 +43,43 @@ app.post("/api/parse-slip", async (req, res) => {
     // Clean base64 string
     const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, "");
 
-    // Structured prompt for bank slip details extraction
-    const prompt = `Analyze this Thai bank transfer slip image and extract the transfer transaction details.
-Format the output as a clean JSON object containing:
-- senderName: The name of the person who transferred the money (Thai or English). Clean any prefixes like นาย/นาง/น.ส. if possible, or extract the full display name.
-- amount: The numerical transfer amount (float/number).
-- date: The transfer date formatted as YYYY-MM-DD.
-- time: The transfer time formatted as HH:MM.
-- bank: The origin bank name (e.g., KBank, SCB, KTB, BBL, PromptPay, Krungsri).
-- isSuccess: A boolean indicating if this is a valid and successful money transfer slip.
+    // Structured prompt for bank slip details extraction with extreme accuracy rules
+    const prompt = `Analyze this Thai bank transfer slip image and accurately extract the transaction details.
 
-Make sure to look closely at the amount (e.g. 150.00, 2,500.00) and the sender's name.
-If you cannot read any field, provide an empty string or null.`;
+Follow these strict rules to ensure absolute accuracy:
+1. SENDER NAME:
+   - Identify the sender's section (marked by "จาก", "ผู้โอน", "บัญชีผู้โอน", "โอนโดย", "Transfer From", "From").
+   - Extract the full name of the sender (Thai or English).
+   - Crucial: DO NOT confuse the sender with the receiver (marked by "ถึง", "ผู้รับโอน", "ผู้รับเงิน", "To", "Transfer To"). You MUST extract the SENDER, not the receiver.
+   - Clean any prefixes like "นาย", "นาง", "นางสาว", "น.ส.", "ด.ช.", "ด.ญ.", "MR.", "MRS.", "MS." to obtain the clean display name, but ensure the first and last names are fully captured (e.g. "สมชาย ดีมาก" or "Somchai Deemak").
+
+2. AMOUNT:
+   - Identify the primary transfer amount (marked by "จำนวนเงิน", "จำนวน", "Amount", "THB").
+   - Extract the numeric value. Ignore commas (e.g. "1,500.00" or "150" should be extracted as 1500.00 or 150.0).
+   - Verify it is the actual transfer amount, not fee amount ("ค่าธรรมเนียม", "Fee") or remaining balance.
+
+3. DATE:
+   - Identify the transfer date.
+   - If the date is in Thai Buddhist Era (B.E. - e.g. "2569", "2568", "2567" or short "69", "68", "67"), convert it to Western Gregorian Era year (Gregorian Year = B.E. Year - 543). E.g., Year 2569/69 becomes 2026, 2568/68 becomes 2025, 2567/67 becomes 2024.
+   - Map Thai abbreviated months to standard month numbers:
+     - ม.ค. -> 01, ก.พ. -> 02, มี.ค. -> 03, เม.ย. -> 04, พ.ค. -> 05, มิ.ย. -> 06
+     - ก.ค. -> 07, ส.ค. -> 08, ก.ย. -> 09, ต.ค. -> 10, พ.ย. -> 11, ธ.ค. -> 12
+   - Format the date precisely as YYYY-MM-DD (e.g. "2026-07-12").
+
+4. TIME:
+   - Identify the transaction time.
+   - Strip any Thai text like "น." or seconds if present.
+   - Format the time precisely as HH:MM (e.g. "10:30").
+
+5. BANK NAME:
+   - Identify the originating bank of the transfer from logos or text (e.g. Kasikornbank/KBank, SCB, Krungthai/KTB, Bangkok Bank/BBL, Krungsri/BAY, Government Savings Bank/GSB, TMBThanachart/TTB, PromptPay, UOB).
+   - Use standard names or abbreviations (e.g. "KBank", "SCB", "PromptPay", "KTB", "BBL", "Krungsri", "TTB", "GSB").
+
+6. TRANSACTION STATUS:
+   - Check if this is a genuine successful transfer slip.
+   - Look for terms like "สำเร็จ", "โอนเงินสำเร็จ", "ทำรายการสำเร็จ", "บันทึกรายการเรียบร้อย", "Transfer Successful".
+   - Set isSuccess to true if the transaction is successful.
+   - Set isSuccess to false if the slip is a draft, canceled, scheduled transaction, or incomplete.`;
 
     const response = await ai.models.generateContent({
       model: "gemini-3.5-flash",
@@ -68,17 +93,18 @@ If you cannot read any field, provide an empty string or null.`;
         prompt,
       ],
       config: {
+        temperature: 0.1, // Set lower temperature for deterministic & accurate factual OCR parsing
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.OBJECT,
           properties: {
             senderName: {
               type: Type.STRING,
-              description: "ชื่อผู้โอนเงินภาษาไทย หรืออังกฤษ เช่น สมชาย ดีมาก หรือ Somchai Deemak",
+              description: "ชื่อผู้โอนเงินภาษาไทย หรืออังกฤษ ปราศจากคำนำหน้าชื่อ เช่น สมชาย ดีมาก หรือ Somchai Deemak",
             },
             amount: {
               type: Type.NUMBER,
-              description: "จำนวนเงินที่โอนสำเร็จ ตัวเลขทศนิยม เช่น 250.00",
+              description: "จำนวนเงินที่โอนสำเร็จหลักที่เป็นตัวเลขทศนิยม เช่น 250.00",
             },
             date: {
               type: Type.STRING,
@@ -90,7 +116,7 @@ If you cannot read any field, provide an empty string or null.`;
             },
             bank: {
               type: Type.STRING,
-              description: "ชื่อย่อหรือชื่อเต็มของธนาคาร เช่น KBank, SCB, PromptPay, KTB",
+              description: "ชื่อย่อหรือชื่อเต็มของธนาคาร เช่น KBank, SCB, PromptPay, KTB, BBL",
             },
             isSuccess: {
               type: Type.BOOLEAN,

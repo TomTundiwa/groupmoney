@@ -197,6 +197,11 @@ export default function SlipUploader({ members, onUploadSuccess, activeGroupId }
       return;
     }
 
+    if (!createNewMember && !selectedMemberId) {
+      alert("กรุณาเลือกรายชื่อเพื่อนที่ต้องการจับคู่ยอดเงิน หรือเลือกเพิ่มรายชื่อเพื่อนใหม่");
+      return;
+    }
+
     if (createNewMember && !parsedResult.senderName.trim()) {
       alert("กรุณาระบุชื่อคนโอนเงิน");
       return;
@@ -272,9 +277,45 @@ export default function SlipUploader({ members, onUploadSuccess, activeGroupId }
             </p>
 
             {error && (
-              <div className="flex items-center gap-1.5 mt-4 text-xs font-sans text-rose-400 bg-rose-500/10 px-3 py-1.5 rounded-lg border border-rose-500/10">
-                <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                <span>{error}</span>
+              <div className="mt-4 p-4 bg-slate-950/80 border border-rose-500/20 rounded-xl space-y-3 w-full text-left" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-start gap-2 text-xs font-sans text-rose-400">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5 text-rose-400 animate-pulse" />
+                  <div className="space-y-1">
+                    <span className="font-bold block">เกิดข้อผิดพลาดในการวิเคราะห์สลิป:</span>
+                    <span className="text-slate-400 leading-relaxed block">{error}</span>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2 pt-2.5 border-t border-slate-800/80">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      // Allow manual entry bypass on error
+                      setParsedResult({
+                        senderName: "",
+                        amount: 0,
+                        date: new Date().toISOString().split("T")[0],
+                        time: new Date().toTimeString().slice(0, 5),
+                        bank: "โอนเงินผ่านระบบธนาคาร",
+                        isSuccess: true,
+                      });
+                      setError(null);
+                    }}
+                    className="flex-1 px-3 py-2 bg-slate-800 hover:bg-slate-700/80 border border-slate-700 text-slate-200 hover:text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
+                  >
+                    <FileText className="w-3.5 h-3.5 text-emerald-400" /> กรอกข้อมูลสลิปเอง (Manual)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setError(null);
+                    }}
+                    className="px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-400 hover:text-slate-200 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1 cursor-pointer"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" /> ลองใหม่
+                  </button>
+                </div>
               </div>
             )}
           </motion.div>

@@ -7,13 +7,21 @@ import MemberManager from "./components/MemberManager";
 import TransactionHistory from "./components/TransactionHistory";
 import { HelpCircle, Landmark, Sparkles } from "lucide-react";
 import { motion } from "motion/react";
-import { collection, doc, setDoc, deleteDoc, updateDoc, onSnapshot, writeBatch } from "firebase/firestore";
+import { collection, doc, getDoc, setDoc, deleteDoc, updateDoc, onSnapshot, writeBatch } from "firebase/firestore";
 import { db } from "./lib/firebase";
 
 export default function App() {
   const [groups, setGroups] = useState<Group[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [deviceId, setDeviceId] = useState<string>(() => {
+    let id = localStorage.getItem("sb_device_id");
+    if (!id) {
+      id = `DEV-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+      localStorage.setItem("sb_device_id", id);
+    }
+    return id;
+  });
   const [activeGroupId, setActiveGroupId] = useState<string>(() => {
     return localStorage.getItem("sb_active_id") || "";
   });
@@ -103,6 +111,163 @@ export default function App() {
       unsubscribeTransactions();
     };
   }, []);
+
+  // Sync device profile from Firestore on mount & handle local migration
+  useEffect(() => {
+    if (!deviceId) return;
+
+    const deviceRef = doc(db, "devices", deviceId);
+
+    const syncDeviceProfile = async () => {
+      try {
+        const docSnap = await getDoc(deviceRef);
+        let cloudCreated: string[] = [];
+        let cloudUnlocked: string[] = [];
+        let cloudActiveId = "";
+
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          cloudCreated = data.createdGroupIds || [];
+          cloudUnlocked = data.unlockedGroupIds || [];
+          cloudActiveId = data.lastActiveGroupId || "";
+        }
+
+        // Merge cloud and local state to prevent losing access
+        setCreatedGroupIds((prev) => {
+          const merged = Array.from(new Set([...prev, ...cloudCreated]));
+          localStorage.setItem("sb_created_groups", JSON.stringify(merged));
+          return merged;
+        });
+
+        setUnlockedGroupIds((prev) => {
+          const merged = Array.from(new Set([...prev, ...cloudUnlocked]));
+          localStorage.setItem("sb_unlocked_groups", JSON.stringify(merged));
+          return merged;
+        });
+
+        if (cloudActiveId && !activeGroupId) {
+          setActiveGroupId(cloudActiveId);
+          localStorage.setItem("sb_active_id", cloudActiveId);
+        }
+
+        // One-time migration: upload old localStorage data if present
+        const localGroupsStr = localStorage.getItem("sb_groups");
+        const localMembersStr = localStorage.getItem("sb_members");
+        const localTxsStr = localStorage.getItem("sb_txs");
+
+        if (localGroupsStr && !localStorage.getItem("sb_migrated_to_firestore")) {
+          try {
+            const localGroups = JSON.parse(localGroupsStr);
+            const localMembers = localMembersStr ? JSON.parse(localMembersStr) : [];
+            const localTxs = localTxsStr ? JSON.parse(localTxsStr) : [];
+
+            if (Array.isArray(localGroups) && localGroups.length > 0) {
+              const batch = writeBatch(db);
+              localGroups.forEach((g) => {
+                if (g.id !== "g-1") {
+                  batch.set(doc(db, "groups", g.id), g);
+                }
+              });
+              localMembers.forEach((m) => {
+                batch.set(doc(db, "members", m.id), m);
+              });
+              localTxs.forEach((t) => {
+                batch.set(doc(db, "transactions", t.id), t);
+              });
+              await batch.commit();
+              console.log("Migrated local data to cloud successfully!");
+            }
+            localStorage.setItem("sb_migrated_to_firestore", "true");
+          } catch (e) {
+            console.error("Migration error:", e);
+          }
+        }
+      } catch (err) {
+        console.error("Error syncing device profile:", err);
+      }
+    };
+
+    syncDeviceProfile();
+  }, [deviceId]);
+
+  // Push device profile changes to Firestore
+  useEffect(() => {
+    if (!deviceId) return;
+    const updateDeviceCloud = async () => {
+      try {
+        await setDoc(doc(db, "devices", deviceId), {
+          id: deviceId,
+          createdGroupIds,
+          unlockedGroupIds,
+          lastActiveGroupId: activeGroupId,
+          updatedAt: new Date().toISOString()
+        }, { merge: true });
+      } catch (err) {
+        console.error("Error backing up device state to Firestore:", err);
+      }
+    };
+    updateDeviceCloud();
+  }, [createdGroupIds, unlockedGroupIds, activeGroupId, deviceId]);
+
+  // Auto-seed Demo group (ก๊วนเรียนรู้) if there are 0 groups in the system
+  useEffect(() => {
+    if (groups.length === 0) {
+      const seedDemoGroup = async () => {
+        try {
+          const demoGroup: Group = {
+            id: "demo-group",
+            name: "ก๊วนทดลองเรียนรู้ (SlipBuddy Demo) 🎓",
+            targetAmountPerMember: 150,
+            description: "กลุ่มเรียนรู้การใช้งานสแกนสลิปและเช็คยอดเงิน ลองอัปโหลดสลิปจำลองเล่นได้เลยครับ!",
+            passcode: "demo",
+            createdAt: new Date().toISOString()
+          };
+
+          const demoMembers: Member[] = [
+            { id: "m-demo-1", groupId: "demo-group", name: "สมยศ ใจโอน", nickname: "พี่สมยศ", createdAt: new Date().toISOString() },
+            { id: "m-demo-2", groupId: "demo-group", name: "อนงค์ รักเรียน", nickname: "น้องอนงค์", createdAt: new Date().toISOString() },
+            { id: "m-demo-3", groupId: "demo-group", name: "สมชาย สายโอน", nickname: "สมชาย", createdAt: new Date().toISOString() }
+          ];
+
+          const demoTransactions: Transaction[] = [
+            {
+              id: "t-demo-1",
+              groupId: "demo-group",
+              memberId: "m-demo-1",
+              amount: 150,
+              date: new Date().toISOString().split("T")[0],
+              time: "10:30",
+              bank: "ธนาคารกสิกรไทย",
+              senderNameText: "นาย สมยศ ใจโอน",
+              isAiParsed: true,
+              notes: "สลิปจำลองระบุชื่อ สมยศ โอนเงินสำเร็จ",
+              createdAt: new Date().toISOString()
+            }
+          ];
+
+          const batch = writeBatch(db);
+          batch.set(doc(db, "groups", "demo-group"), demoGroup);
+          demoMembers.forEach((m) => {
+            batch.set(doc(db, "members", m.id), m);
+          });
+          demoTransactions.forEach((t) => {
+            batch.set(doc(db, "transactions", t.id), t);
+          });
+          await batch.commit();
+
+          // Auto unlock for first-time device
+          setUnlockedGroupIds((prev) => {
+            const next = prev.includes("demo-group") ? prev : [...prev, "demo-group"];
+            localStorage.setItem("sb_unlocked_groups", JSON.stringify(next));
+            return next;
+          });
+        } catch (e) {
+          console.error("Error seeding demo group:", e);
+        }
+      };
+      seedDemoGroup();
+    }
+  }, [groups]);
 
   // Ensure activeGroupId is always set to a visible group
   useEffect(() => {
@@ -413,6 +578,44 @@ export default function App() {
     }
   };
 
+  const handleSyncDevice = async (targetDeviceId: string): Promise<{ success: boolean; error?: string }> => {
+    if (!targetDeviceId.trim()) return { success: false, error: "กรุณาระบุรหัสเครื่องที่ต้องการเชื่อมต่อ" };
+    const cleanedId = targetDeviceId.trim().toUpperCase();
+    
+    try {
+      const deviceRef = doc(db, "devices", cleanedId);
+      const docSnap = await getDoc(deviceRef);
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        const cloudCreated = data.createdGroupIds || [];
+        const cloudUnlocked = data.unlockedGroupIds || [];
+        const cloudActiveId = data.lastActiveGroupId || "";
+
+        // Save target Device ID locally
+        setDeviceId(cleanedId);
+        localStorage.setItem("sb_device_id", cleanedId);
+
+        setCreatedGroupIds(cloudCreated);
+        localStorage.setItem("sb_created_groups", JSON.stringify(cloudCreated));
+
+        setUnlockedGroupIds(cloudUnlocked);
+        localStorage.setItem("sb_unlocked_groups", JSON.stringify(cloudUnlocked));
+
+        if (cloudActiveId) {
+          setActiveGroupId(cloudActiveId);
+          localStorage.setItem("sb_active_id", cloudActiveId);
+        }
+        
+        return { success: true };
+      } else {
+        return { success: false, error: "ไม่พบรหัสเครื่องนี้ในระบบ กรุณาตรวจสอบความถูกต้องอีกครั้ง" };
+      }
+    } catch (err) {
+      console.error("Error syncing device:", err);
+      return { success: false, error: "เกิดข้อผิดพลาดในการเชื่อมต่อระบบคลาวด์" };
+    }
+  };
+
   const handleDeleteActiveGroup = async () => {
     if (!activeGroupId) return;
 
@@ -484,6 +687,8 @@ export default function App() {
         isLeader={isLeader}
         onDeleteActiveGroup={handleDeleteActiveGroup}
         createdGroupIds={createdGroupIds}
+        deviceId={deviceId}
+        onSyncDevice={handleSyncDevice}
       />
 
       {/* Main Content Body */}

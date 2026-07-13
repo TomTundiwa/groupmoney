@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Group, Member, Transaction } from "../types";
-import { Plus, Users, Landmark, PiggyBank, Target, ChevronDown, Lock, Unlock, ShieldAlert, ShieldCheck, Trash2, Key, Copy, Check } from "lucide-react";
+import { Plus, Users, Landmark, PiggyBank, Target, ChevronDown, Lock, Unlock, ShieldAlert, ShieldCheck, Trash2, Key, Copy, Check, Smartphone, RefreshCw, Laptop } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
 interface HeaderProps {
@@ -14,6 +14,8 @@ interface HeaderProps {
   isLeader: boolean;
   onDeleteActiveGroup?: () => void;
   createdGroupIds?: string[];
+  deviceId?: string;
+  onSyncDevice?: (targetDeviceId: string) => Promise<{ success: boolean; error?: string }>;
 }
 
 export default function Header({
@@ -27,6 +29,8 @@ export default function Header({
   isLeader,
   onDeleteActiveGroup,
   createdGroupIds = [],
+  deviceId = "",
+  onSyncDevice,
 }: HeaderProps) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
@@ -35,6 +39,13 @@ export default function Header({
   const [newGroupPasscode, setNewGroupPasscode] = useState("");
   const [createGroupError, setCreateGroupError] = useState("");
   const [showSelector, setShowSelector] = useState(false);
+
+  // Device states
+  const [showDeviceModal, setShowDeviceModal] = useState(false);
+  const [syncDeviceInput, setSyncDeviceInput] = useState("");
+  const [syncDeviceError, setSyncDeviceError] = useState("");
+  const [syncDeviceSuccess, setSyncDeviceSuccess] = useState(false);
+  const [copiedDeviceId, setCopiedDeviceId] = useState(false);
 
   // Join group states
   const [showJoinModal, setShowJoinModal] = useState(false);
@@ -174,26 +185,37 @@ export default function Header({
               <span className="hidden sm:inline">กลุ่มใหม่</span>
             </button>
 
-            {/* Leader Badge & Reset System */}
-            <div className="flex items-center gap-1.5 ml-1">
-              {isLeader ? (
-                <div className="flex items-center gap-1.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-3 py-2 rounded-xl text-xs font-sans font-bold shadow-sm">
-                  <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                  <span>👑 คุณคือหัวหน้ากลุ่ม</span>
-                </div>
-              ) : null}
+             {/* Leader Badge & Reset System */}
+             <div className="flex items-center gap-1.5 ml-1">
+               {deviceId && (
+                 <button
+                   onClick={() => setShowDeviceModal(true)}
+                   className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700/80 text-emerald-400 border border-slate-700 hover:border-slate-600 px-3 py-2 rounded-xl text-xs font-sans font-bold shadow-sm transition"
+                   title="ข้อมูลระบบอุปกรณ์ & กู้คืน"
+                 >
+                   <Smartphone className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                   <span>จำเครื่องแล้ว: {deviceId}</span>
+                 </button>
+               )}
 
-              {onDeleteActiveGroup && isLeader && (
-                <button
-                  onClick={() => setShowResetConfirm(true)}
-                  className="flex items-center gap-1 px-2.5 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 rounded-xl text-xs font-sans font-bold transition focus:outline-none cursor-pointer"
-                  title="ลบเซิฟเวอร์นี้ออกจากระบบ"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">ลบเซิฟเวอร์นี้</span>
-                </button>
-              )}
-            </div>
+               {isLeader ? (
+                 <div className="flex items-center gap-1.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-3 py-2 rounded-xl text-xs font-sans font-bold shadow-sm">
+                   <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                   <span>👑 คุณคือหัวหน้ากลุ่ม</span>
+                 </div>
+               ) : null}
+
+               {onDeleteActiveGroup && isLeader && (
+                 <button
+                   onClick={() => setShowResetConfirm(true)}
+                   className="flex items-center gap-1 px-2.5 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 rounded-xl text-xs font-sans font-bold transition focus:outline-none cursor-pointer"
+                   title="ลบเซิฟเวอร์นี้ออกจากระบบ"
+                 >
+                   <Trash2 className="w-3.5 h-3.5" />
+                   <span className="hidden sm:inline">ลบเซิฟเวอร์นี้</span>
+                 </button>
+               )}
+             </div>
 
             {/* Dropdown Selector */}
             <AnimatePresence>
@@ -582,6 +604,128 @@ export default function Header({
                   </div>
                 </form>
               )}
+            </motion.div>
+          </div>
+        )}
+
+        {/* Device ID / Sync Modal */}
+        {showDeviceModal && (
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-slate-800 border border-slate-700 rounded-3xl w-full max-w-md p-6 shadow-2xl text-slate-100"
+            >
+              <div className="flex items-center gap-3 mb-4 text-emerald-400">
+                <div className="p-3 bg-emerald-500/10 rounded-2xl border border-emerald-500/15">
+                  <Smartphone className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold font-sans">ระบบจดจำเครื่องอัตโนมัติ</h3>
+                  <p className="text-[11px] text-emerald-400/80 font-mono mt-0.5">DEVICE IDENTIFIER &amp; CLOUD SYNC</p>
+                </div>
+              </div>
+
+              <div className="space-y-4 text-sm text-slate-300 font-sans mb-6">
+                <p className="leading-relaxed text-xs">
+                  ระบบได้เปิดใช้งาน <strong className="text-emerald-400">ระบบจดจำเครื่องเรียบร้อยแล้ว</strong> บนเบราว์เซอร์นี้ หากปิดเว็บหรือรีโหลดหน้านี้ ข้อมูลกลุ่มเดิม ประวัติ และสิทธิ์หัวหน้ากลุ่มของท่านจะไม่รีเซ็ตหรือสูญหายแน่นอน!
+                </p>
+
+                <div className="bg-slate-900 border border-slate-700/80 rounded-2xl p-4 space-y-2">
+                  <span className="block text-xs font-semibold text-slate-400">รหัสอุปกรณ์เครื่องนี้ (Device Key)</span>
+                  <div className="flex items-center justify-between gap-2 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm font-mono text-slate-200">
+                    <span className="text-emerald-400 font-bold tracking-wider">{deviceId}</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(deviceId);
+                        setCopiedDeviceId(true);
+                        setTimeout(() => setCopiedDeviceId(false), 2000);
+                      }}
+                      className="p-1.5 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-emerald-400 transition"
+                      title="คัดลอกรหัสเครื่อง"
+                    >
+                      {copiedDeviceId ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-slate-500 leading-normal">
+                    💡 ท่านสามารถคัดลอกรหัสนี้ไปใช้ที่เครื่องอื่นเพื่อเชื่อมข้อมูลกลุ่มเข้าด้วยกันได้ทันที!
+                  </p>
+                </div>
+
+                {/* Sync form to pull data from another device */}
+                {onSyncDevice && (
+                  <form
+                    onSubmit={async (e) => {
+                      e.preventDefault();
+                      if (!syncDeviceInput.trim()) return;
+                      setSyncDeviceError("");
+                      setSyncDeviceSuccess(false);
+                      const result = await onSyncDevice(syncDeviceInput);
+                      if (result.success) {
+                        setSyncDeviceSuccess(true);
+                        setSyncDeviceInput("");
+                        setTimeout(() => {
+                          setShowDeviceModal(false);
+                          setSyncDeviceSuccess(false);
+                        }, 2000);
+                      } else {
+                        setSyncDeviceError(result.error || "เชื่อมโยงเครื่องไม่สำเร็จ");
+                      }
+                    }}
+                    className="border-t border-slate-700/50 pt-4 space-y-3"
+                  >
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-400 mb-1.5 flex items-center gap-1.5">
+                        <RefreshCw className="w-3.5 h-3.5 text-emerald-400" /> เชื่อมข้อมูลกลุ่มจากเครื่องอื่น (Sync Device)
+                      </label>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          required
+                          value={syncDeviceInput}
+                          onChange={(e) => setSyncDeviceInput(e.target.value)}
+                          placeholder="ป้อนรหัสอุปกรณ์เครื่องเก่า เช่น DEV-XXXX"
+                          className="flex-1 px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-sm font-mono tracking-wider focus:outline-none focus:border-emerald-500 text-slate-100 transition"
+                        />
+                        <button
+                          type="submit"
+                          className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl font-bold text-xs transition flex-shrink-0"
+                        >
+                          ดึงข้อมูลมา
+                        </button>
+                      </div>
+                    </div>
+
+                    {syncDeviceError && (
+                      <p className="text-[11px] text-rose-400 font-medium">
+                        ⚠️ {syncDeviceError}
+                      </p>
+                    )}
+
+                    {syncDeviceSuccess && (
+                      <p className="text-[11px] text-emerald-400 font-bold flex items-center gap-1">
+                        <Check className="w-3.5 h-3.5" /> ดึงข้อมูลและจดจำระบบเครื่องเก่าสำเร็จ!
+                      </p>
+                    )}
+                  </form>
+                )}
+              </div>
+
+              <div className="flex items-center justify-end border-t border-slate-700/50 pt-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowDeviceModal(false);
+                    setSyncDeviceError("");
+                    setSyncDeviceSuccess(false);
+                  }}
+                  className="px-5 py-2 bg-slate-700 hover:bg-slate-600 rounded-xl text-xs font-bold text-slate-200 transition"
+                >
+                  ปิดหน้าต่าง
+                </button>
+              </div>
             </motion.div>
           </div>
         )}
