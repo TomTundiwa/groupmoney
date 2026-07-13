@@ -81,17 +81,20 @@ Follow these strict rules to ensure absolute accuracy:
    - Set isSuccess to true if the transaction is successful.
    - Set isSuccess to false if the slip is a draft, canceled, scheduled transaction, or incomplete.`;
 
+    const imagePart = {
+      inlineData: {
+        mimeType: mimeType,
+        data: base64Data,
+      },
+    };
+
+    const textPart = {
+      text: prompt,
+    };
+
     const response = await ai.models.generateContent({
       model: "gemini-3.5-flash",
-      contents: [
-        {
-          inlineData: {
-            mimeType: mimeType,
-            data: base64Data,
-          },
-        },
-        prompt,
-      ],
+      contents: { parts: [imagePart, textPart] },
       config: {
         temperature: 0.1, // Set lower temperature for deterministic & accurate factual OCR parsing
         responseMimeType: "application/json",
