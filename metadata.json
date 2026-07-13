@@ -1,0 +1,6 @@
+{
+  "name": "Group Money Tracker",
+  "description": "ระบบจัดการเก็บเงินภายในกลุ่ม จำชื่อคนโอน เช็คสลิปธนาคารอัตโนมัติด้วย AI และสรุปยอดรายอาทิตย์",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
