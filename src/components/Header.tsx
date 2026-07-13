@@ -139,10 +139,10 @@ export default function Header({
           </div>
 
           {/* Group Selector */}
-          <div className="relative flex items-center gap-2">
-            <div className="text-right hidden sm:block">
+          <div className="relative flex flex-wrap items-center gap-2">
+            <div className="text-right hidden lg:block">
               <p className="text-xs text-slate-400">กลุ่มก๊วนที่เลือก</p>
-              <p className="text-sm font-medium text-emerald-400">{activeGroup?.name || "ยังไม่มีกลุ่ม"}</p>
+              <p className="text-sm font-medium text-emerald-400 truncate max-w-[120px]">{activeGroup?.name || "ยังไม่มีกลุ่ม"}</p>
             </div>
 
             <button
@@ -150,13 +150,13 @@ export default function Header({
               className="flex items-center justify-between gap-2 px-4 py-2.5 bg-slate-800/80 hover:bg-slate-800 border border-slate-700 hover:border-slate-600 rounded-xl transition duration-200 text-sm font-medium focus:outline-none"
               id="group-select-btn"
             >
-              <span>{activeGroup?.name || "เลือกกลุ่ม..."}</span>
-              <ChevronDown className="w-4 h-4 text-slate-400" />
+              <span className="truncate max-w-[100px] sm:max-w-[180px]">{activeGroup?.name || "เลือกกลุ่ม..."}</span>
+              <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" />
             </button>
 
             {activeGroup?.passcode && (
               <div className="bg-slate-800/80 border border-slate-700 rounded-xl px-3 py-2.5 flex items-center gap-1.5 text-xs font-mono shrink-0">
-                <span className="text-slate-400">รหัสก๊วน:</span>
+                <span className="text-slate-400 hidden sm:inline">รหัสก๊วน:</span>
                 <span className="text-amber-400 font-bold tracking-wider">{activeGroup.passcode}</span>
                 <button
                   type="button"
@@ -165,7 +165,7 @@ export default function Header({
                     setCopiedPasscode(true);
                     setTimeout(() => setCopiedPasscode(false), 2000);
                   }}
-                  className="p-1 hover:bg-slate-700 rounded text-slate-400 hover:text-emerald-400 transition"
+                  className="p-1 hover:bg-slate-700 rounded text-slate-400 hover:text-emerald-400 transition cursor-pointer"
                   title="คัดลอกรหัสกลุ่มเพื่อแชร์ให้เพื่อน"
                 >
                   {copiedPasscode ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
@@ -177,31 +177,32 @@ export default function Header({
               onClick={() => {
                 setShowAddModal(true);
               }}
-              className="p-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl transition-all duration-200 hover:scale-105 shadow-md flex items-center gap-1.5 text-sm"
+              className="p-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl transition-all duration-200 hover:scale-105 shadow-md flex items-center gap-1.5 text-sm cursor-pointer"
               title="สร้างกลุ่มใหม่"
               id="new-group-btn"
             >
-              <Plus className="w-5 h-5" />
+              <Plus className="w-5 h-5 shrink-0" />
               <span className="hidden sm:inline">กลุ่มใหม่</span>
             </button>
 
              {/* Leader Badge & Reset System */}
-             <div className="flex items-center gap-1.5 ml-1">
+             <div className="flex flex-wrap items-center gap-1.5 ml-1">
                {deviceId && (
                  <button
                    onClick={() => setShowDeviceModal(true)}
-                   className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700/80 text-emerald-400 border border-slate-700 hover:border-slate-600 px-3 py-2 rounded-xl text-xs font-sans font-bold shadow-sm transition"
+                   className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700/80 text-emerald-400 border border-slate-700 hover:border-slate-600 px-3 py-2 rounded-xl text-xs font-sans font-bold shadow-sm transition cursor-pointer"
                    title="ข้อมูลระบบอุปกรณ์ & กู้คืน"
                  >
                    <Smartphone className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                   <span>จำเครื่องแล้ว: {deviceId}</span>
+                   <span className="hidden md:inline">จำเครื่องแล้ว:</span>
+                   <span>{deviceId}</span>
                  </button>
                )}
 
                {isLeader ? (
                  <div className="flex items-center gap-1.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-3 py-2 rounded-xl text-xs font-sans font-bold shadow-sm">
-                   <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                   <span>👑 คุณคือหัวหน้ากลุ่ม</span>
+                   <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                   <span>👑 หัวหน้าก๊วน</span>
                  </div>
                ) : null}
 
@@ -212,7 +213,7 @@ export default function Header({
                    title="ลบเซิฟเวอร์นี้ออกจากระบบ"
                  >
                    <Trash2 className="w-3.5 h-3.5" />
-                   <span className="hidden sm:inline">ลบเซิฟเวอร์นี้</span>
+                   <span>ลบเซิฟเวอร์นี้</span>
                  </button>
                )}
              </div>

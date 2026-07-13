@@ -5,8 +5,8 @@ import WeeklyChart from "./components/WeeklyChart";
 import SlipUploader from "./components/SlipUploader";
 import MemberManager from "./components/MemberManager";
 import TransactionHistory from "./components/TransactionHistory";
-import { HelpCircle, Landmark, Sparkles } from "lucide-react";
-import { motion } from "motion/react";
+import { HelpCircle, Landmark, Sparkles, ShieldAlert, ShieldCheck, Trash2, Key, Share2, Copy, Check, Settings, Crown, Users } from "lucide-react";
+import { motion, AnimatePresence } from "motion/react";
 import { collection, doc, getDoc, setDoc, deleteDoc, updateDoc, onSnapshot, writeBatch } from "firebase/firestore";
 import { db } from "./lib/firebase";
 
@@ -49,6 +49,10 @@ export default function App() {
   const [onboardError, setOnboardError] = useState("");
   const [onboardSuccess, setOnboardSuccess] = useState("");
 
+  const [showMainDeleteConfirm, setShowMainDeleteConfirm] = useState(false);
+  const [showMainDeleteSuccess, setShowMainDeleteSuccess] = useState(false);
+  const [copiedGroupPasscode, setCopiedGroupPasscode] = useState(false);
+
   const [unlockedGroupIds, setUnlockedGroupIds] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem("sb_unlocked_groups");
@@ -58,8 +62,8 @@ export default function App() {
     }
   });
 
-  // Compute leader status dynamically
-  const isLeader = createdGroupIds.includes(activeGroupId);
+  // Compute leader status dynamically (Creator has leader status, and users have leader status over the demo group to manage/delete it)
+  const isLeader = createdGroupIds.includes(activeGroupId) || activeGroupId === "demo-group";
 
   // Save unlocked group IDs and created group IDs to localStorage when changed
   useEffect(() => {
@@ -209,9 +213,9 @@ export default function App() {
     updateDeviceCloud();
   }, [createdGroupIds, unlockedGroupIds, activeGroupId, deviceId]);
 
-  // Auto-seed Demo group (ก๊วนเรียนรู้) if there are 0 groups in the system
+  // Auto-seed Demo group (ก๊วนเรียนรู้) if there are 0 groups in the system and not dismissed
   useEffect(() => {
-    if (groups.length === 0) {
+    if (groups.length === 0 && !localStorage.getItem("sb_demo_dismissed")) {
       const seedDemoGroup = async () => {
         try {
           const demoGroup: Group = {
@@ -642,6 +646,11 @@ export default function App() {
 
       await batch.commit();
 
+      // Prevent the demo-group from auto-regenerating if the user chose to delete it to start real usage
+      if (activeGroupId === "demo-group") {
+        localStorage.setItem("sb_demo_dismissed", "true");
+      }
+
       // Clean up local tracking
       const updatedCreatedGroupIds = createdGroupIds.filter((id) => id !== activeGroupId);
       const updatedUnlockedGroupIds = unlockedGroupIds.filter((id) => id !== activeGroupId);
@@ -695,15 +704,112 @@ export default function App() {
       <main className="flex-1 max-w-6xl w-full mx-auto px-4 md:px-6 py-8" id="main-content">
         {activeGroup ? (
           <div className="space-y-6">
-            {/* Header info */}
-            {activeGroup.description && (
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 text-xs text-slate-400 flex items-center gap-2">
-                <HelpCircle className="w-4 h-4 text-emerald-400 flex-shrink-0" />
-                <span>
-                  <strong className="text-slate-300">รายละเอียดกลุ่ม:</strong> {activeGroup.description}
-                </span>
+            {/* Group Administration & Information Control Board */}
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 md:p-6 shadow-xl" id="group-admin-board">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+                
+                {/* Left side: Info & Sharing */}
+                <div className="flex-1 space-y-3.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="text-lg md:text-xl font-sans font-bold text-slate-100 flex items-center gap-2">
+                      <span>{activeGroup.name}</span>
+                    </h2>
+                    <span className="text-[11px] font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full font-bold">
+                      เป้าหมาย: ฿{activeGroup.targetAmountPerMember.toLocaleString("th-TH")} / คน
+                    </span>
+                  </div>
+
+                  <p className="text-xs text-slate-400 leading-relaxed max-w-2xl font-sans">
+                    <strong className="text-slate-300">รายละเอียดกลุ่ม: </strong>
+                    {activeGroup.description || "ไม่มีรายละเอียดคำอธิบายกลุ่ม"}
+                  </p>
+
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pt-1 border-t border-slate-800/60">
+                    {activeGroup.passcode ? (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-slate-400 font-sans flex items-center gap-1">
+                          <Key className="w-3.5 h-3.5 text-amber-400" /> แชร์รหัสกลุ่มให้เพื่อนร่วมก๊วน:
+                        </span>
+                        <div className="bg-slate-950/80 border border-slate-800 rounded-xl px-2.5 py-1 flex items-center gap-2 text-xs font-mono">
+                          <span className="text-amber-400 font-bold tracking-wider">{activeGroup.passcode}</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard.writeText(activeGroup.passcode || "");
+                              setCopiedGroupPasscode(true);
+                              setTimeout(() => setCopiedGroupPasscode(false), 2000);
+                            }}
+                            className="p-1 hover:bg-slate-800 rounded text-slate-400 hover:text-emerald-400 transition cursor-pointer"
+                            title="คัดลอกรหัสเข้ากลุ่ม"
+                          >
+                            {copiedGroupPasscode ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1.5 text-xs text-slate-500 font-sans">
+                        <span className="w-1.5 h-1.5 rounded-full bg-slate-600 animate-pulse" />
+                        <span>กลุ่มก๊วนนี้เป็นสาธารณะ ไม่จำเป็นต้องใช้รหัสผ่านในการค้นหา</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Right side: Admin Management (For Leader / Non-leader views) */}
+                <div className="shrink-0 md:pl-6 md:border-l md:border-slate-800/80">
+                  {activeGroupId === "demo-group" ? (
+                    <div className="flex flex-col items-start md:items-end justify-center space-y-2.5">
+                      <div className="flex items-center gap-1.5 text-xs text-amber-400 font-bold bg-amber-400/5 px-3 py-1.5 rounded-xl border border-amber-400/10 shadow-sm font-sans animate-pulse">
+                        <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
+                        <span>🎓 โหมดทดลองระบบ (Demo Group)</span>
+                      </div>
+                      <p className="text-[11px] text-slate-400 text-left md:text-right leading-relaxed max-w-xs font-sans animate-pulse">
+                        เมื่อคุณเข้าใจระบบและพร้อมเปิดใช้งานจริงกับเพื่อนๆ แล้ว สามารถกดปุ่มลบก๊วนจำลองนี้ออกอย่างถาวรได้เลยครับ!
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setShowMainDeleteConfirm(true)}
+                        className="flex items-center gap-2 px-4 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/20 hover:border-rose-500/40 rounded-xl text-xs font-sans font-bold transition duration-200 cursor-pointer shadow-sm"
+                        title="ลบก๊วนทดลองเพื่อเตรียมเริ่มใช้งานจริง"
+                      >
+                        <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                        <span>ลบก๊วนทดลองเพื่อเตรียมใช้จริง 🚀</span>
+                      </button>
+                    </div>
+                  ) : isLeader ? (
+                    <div className="flex flex-col items-start md:items-end justify-center space-y-2.5">
+                      <div className="flex items-center gap-1.5 text-xs text-amber-400 font-bold bg-amber-400/5 px-3 py-1.5 rounded-xl border border-amber-400/10 shadow-sm font-sans">
+                        <Crown className="w-4 h-4 text-amber-400 shrink-0" />
+                        <span>👑 คุณเป็นหัวหน้ากลุ่มก๊วนนี้</span>
+                      </div>
+                      <p className="text-[11px] text-slate-400 text-left md:text-right leading-relaxed max-w-xs font-sans">
+                        คุณคือผู้ดูแลเซิฟเวอร์นี้ สามารถลบและจัดการข้อมูลทั้งหมดภายในกลุ่มนี้ได้อย่างสมบูรณ์
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setShowMainDeleteConfirm(true)}
+                        className="flex items-center gap-2 px-4 py-2.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/20 hover:border-rose-500/40 rounded-xl text-xs font-sans font-bold transition duration-200 cursor-pointer shadow-sm"
+                        title="ลบเซิฟเวอร์กลุ่มสะสมเงินนี้อย่างถาวร"
+                      >
+                        <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                        <span>ลบเซิฟเวอร์ก๊วนนี้</span>
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col items-start md:items-end justify-center space-y-2">
+                      <div className="flex items-center gap-1.5 text-xs text-emerald-400 font-semibold bg-emerald-500/5 px-3 py-1.5 rounded-xl border border-emerald-500/10 shadow-sm font-sans">
+                        <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                        <span>คุณคือสมาชิกกลุ่มก๊วนนี้</span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 text-left md:text-right leading-relaxed max-w-xs font-sans">
+                        สิทธิ์ในการลบหรือยกเลิกเซิฟเวอร์สงวนไว้เฉพาะสำหรับผู้ที่เป็นหัวหน้ากลุ่มก๊วนเท่านั้นครับ
+                      </p>
+                    </div>
+                  )}
+                </div>
+
               </div>
-            )}
+            </div>
 
             {/* Weekly Analytics Section */}
             <WeeklyChart transactions={activeTransactions} members={activeMembers} />
@@ -801,6 +907,97 @@ export default function App() {
       <footer className="w-full bg-slate-950 border-t border-slate-900 text-slate-600 py-6 text-center text-xs font-mono mt-12">
         <p>© 2026 SlipBuddy. สแกนสลิปยึดใจเพื่อน ตรวจจับสลิปด้วย AI ล้ำสมัย</p>
       </footer>
+
+      {/* Main Delete Confirmation Modal */}
+      <AnimatePresence>
+        {showMainDeleteConfirm && (
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-slate-800 border border-slate-700 rounded-3xl w-full max-w-md p-6 shadow-2xl text-slate-100"
+            >
+              <div className="flex items-center gap-3 mb-4 text-rose-400">
+                <div className="p-3 bg-rose-500/10 rounded-2xl border border-rose-500/15">
+                  <ShieldAlert className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold font-sans">ยืนยันลบเซิฟเวอร์นี้อย่างถาวร?</h3>
+                  <p className="text-[11px] text-rose-400/80 font-mono mt-0.5 font-bold">PERMANENT DELETION</p>
+                </div>
+              </div>
+
+              <div className="space-y-3 text-sm text-slate-300 font-sans mb-6">
+                <p>
+                  คุณกำลังจะลบเซิฟเวอร์กลุ่ม <strong className="text-rose-400 font-semibold">"{activeGroup?.name}"</strong> ออกจากฐานข้อมูลระบบคลาวด์อย่างถาวร
+                </p>
+                <div className="bg-rose-500/5 border border-rose-500/10 rounded-xl p-3 text-xs text-rose-300/90 space-y-1.5 leading-relaxed">
+                  <p className="font-semibold text-rose-300">🚨 สิ่งที่จะเกิดขึ้นเมื่อลบ:</p>
+                  <ul className="list-disc pl-4 space-y-1 text-slate-400">
+                    <li>รายชื่อสมาชิกทุกคนในกลุ่มก๊วนนี้จะถูกลบทั้งหมด</li>
+                    <li>ประวัติสลิปและการโอนเงินทั้งหมดจะถูกทำลาย</li>
+                    <li>ลิงก์เข้ากลุ่มและรหัสผ่านจะไม่สามารถใช้งานได้อีกต่อไป</li>
+                  </ul>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 font-sans">
+                <button
+                  type="button"
+                  onClick={() => setShowMainDeleteConfirm(false)}
+                  className="px-4 py-2.5 text-slate-400 hover:text-slate-200 transition text-sm font-medium cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await handleDeleteActiveGroup();
+                    setShowMainDeleteConfirm(false);
+                    setShowMainDeleteSuccess(true);
+                  }}
+                  className="px-5 py-2.5 bg-rose-500 hover:bg-rose-600 text-slate-100 rounded-xl font-bold text-sm transition shadow-lg shadow-rose-950/50 cursor-pointer"
+                >
+                  ใช่, ลบเซิฟเวอร์นี้
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Main Delete Success Modal */}
+      <AnimatePresence>
+        {showMainDeleteSuccess && (
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-slate-800 border border-slate-700 rounded-3xl w-full max-w-sm p-6 shadow-2xl text-slate-100 text-center"
+            >
+              <div className="mx-auto w-12 h-12 bg-emerald-500/10 text-emerald-400 rounded-full flex items-center justify-center border border-emerald-500/20 mb-4">
+                <ShieldCheck className="w-6 h-6" />
+              </div>
+              <h3 className="text-lg font-bold text-slate-100 font-sans mb-2">ลบข้อมูลเซิฟเวอร์เสร็จสิ้น!</h3>
+              <p className="text-xs text-slate-400 font-sans mb-6 leading-relaxed">
+                ระบบได้ดำเนินการลบข้อมูลกลุ่มและทำลายประวัติสลิปทั้งหมดออกจากฐานข้อมูลคลาวด์เรียบร้อยแล้วครับ 🚀
+              </p>
+              <button
+                type="button"
+                onClick={() => setShowMainDeleteSuccess(false)}
+                className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl font-bold text-sm transition focus:outline-none cursor-pointer"
+              >
+                ตกลง
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Import AnimatePresence support wrapper */}
+      <div className="hidden" />
     </div>
   );
 }
