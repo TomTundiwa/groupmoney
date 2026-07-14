@@ -75,6 +75,11 @@ export default function SlipUploader({ members, onUploadSuccess, activeGroupId }
 
   // Convert file to Base64 and send to server API for Gemini processing
   const processFile = async (file: File) => {
+    if (file.size > 15 * 1024 * 1024) {
+      setError("ไฟล์มีขนาดใหญ่เกินไป (จำกัดไม่เกิน 15MB)");
+      return;
+    }
+
     let mimeType = file.type;
     const fileName = file.name.toLowerCase();
 
@@ -86,18 +91,9 @@ export default function SlipUploader({ members, onUploadSuccess, activeGroupId }
       else if (fileName.endsWith(".png")) mimeType = "image/png";
       else if (fileName.endsWith(".webp")) mimeType = "image/webp";
       else if (fileName.endsWith(".jpg") || fileName.endsWith(".jpeg")) mimeType = "image/jpeg";
-      else mimeType = "image/jpeg"; // default fallback
-    }
-
-    const isSupported = 
-      mimeType.startsWith("image/") || 
-      mimeType === "application/pdf" || 
-      fileName.endsWith(".heic") || 
-      fileName.endsWith(".heif");
-
-    if (!isSupported) {
-      setError("กรุณาอัปโหลดไฟล์สลิปที่ถูกต้อง (รองรับรูปภาพ JPEG, PNG, WEBP, HEIC และไฟล์ PDF)");
-      return;
+      else if (fileName.endsWith(".txt")) mimeType = "text/plain";
+      else if (fileName.endsWith(".csv")) mimeType = "text/csv";
+      else mimeType = "text/plain"; // fallback
     }
 
     setLoading(true);
@@ -106,10 +102,10 @@ export default function SlipUploader({ members, onUploadSuccess, activeGroupId }
     setSuccessInfo(null);
 
     try {
-      setLoadingStep("กำลังอัปโหลดรูปภาพสลิป...");
+      setLoadingStep("กำลังอัปโหลดและเตรียมไฟล์สลิป...");
       const base64 = await convertToBase64(file);
 
-      setLoadingStep("ส่งข้อมูลสลิปไปประมวลผลด้วย Gemini AI...");
+      setLoadingStep("ส่งข้อมูลสลิปไปวิเคราะห์ด้วยระบบ Gemini AI...");
       const response = await fetch("/api/parse-slip", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -127,54 +123,48 @@ export default function SlipUploader({ members, onUploadSuccess, activeGroupId }
 
       const parsed: ParsedSlipResult = resJson.data;
 
-      if (!parsed.isSuccess) {
-        setError(
-          "Gemini ตรวจพบว่าไฟล์นี้อาจไม่ใช่สลิปการโอนเงินสำเร็จ หรือชื่อข้อมูลไม่ถูกต้อง กรุณาอัปโหลดสลิปที่สำเร็จ"
-        );
-        setLoading(false);
-        return;
-      }
+      // Set the parsed result to the form so user can review and edit
+      setParsedResult(parsed);
 
-      setLoadingStep("ตรวจสอบและบันทึกยอดเงินอัตโนมัติ...");
-
-      // Perform auto-matching and immediate transaction saving
+      // Perform auto-matching for the dropdown pre-selection
       const matched = autoMatchMember(parsed.senderName, members);
-      let finalNickname = "";
-      let isNew = false;
-
       if (matched) {
-        finalNickname = matched.nickname;
-        onUploadSuccess(parsed, matched.id, null, null);
+        setSelectedMemberId(matched.id);
+        setCreateNewMember(false);
+        setNewMemberNickname("");
       } else {
+        setSelectedMemberId("new");
+        setCreateNewMember(true);
         const cleanName = parsed.senderName.replace(/^(นาย|นาง|นางสาว|น\.ส\.|mr\.|ms\.)/i, "").trim();
-        finalNickname = cleanName.split(" ")[0] || "เพื่อนใหม่";
-        onUploadSuccess(parsed, "new", parsed.senderName, finalNickname);
-        isNew = true;
+        const nickname = cleanName.split(" ")[0] || "เพื่อนใหม่";
+        setNewMemberNickname(nickname);
       }
 
-      setSuccessInfo({
-        amount: parsed.amount,
-        nickname: finalNickname,
-        isNew,
-        senderName: parsed.senderName,
-        bank: parsed.bank,
-        date: parsed.date,
-        time: parsed.time,
-      });
-
-      // Automatically reset / dismiss after 6 seconds
-      setTimeout(() => {
-        setSuccessInfo((prev) => {
-          if (prev && prev.amount === parsed.amount && prev.senderName === parsed.senderName) {
-            return null;
-          }
-          return prev;
-        });
-      }, 6000);
+      // If isSuccess is false, show warning inside confirm form but don't block
+      if (!parsed.isSuccess) {
+        setError("คำเตือน: AI ตรวจไม่พบข้อมูลที่ระบุว่าเป็นการโอนเงินสำเร็จบนสลิปนี้ กรุณาตรวจสอบยอดเงินและรายละเอียดอย่างระมัดระวัง");
+      } else {
+        setError(null);
+      }
 
     } catch (err: any) {
       console.error(err);
-      setError(err.message || "เกิดข้อผิดพลาดระหว่างส่งภาพสลิปให้ AI วิเคราะห์");
+      setError(
+        `สแกนสลิปผ่าน AI ไม่สำเร็จ (${err.message || "ประเภทไฟล์หรือภาพไม่ชัด"}) แต่คุณสามารถกรอกรายละเอียดสลิปเพื่อบันทึกได้ทันที!`
+      );
+      
+      // Open the manual entry form automatically pre-filled so the user is never blocked
+      setParsedResult({
+        senderName: "",
+        amount: 0,
+        date: new Date(file.lastModified || Date.now()).toISOString().split("T")[0],
+        time: new Date(file.lastModified || Date.now()).toTimeString().slice(0, 5),
+        bank: "โอนเงินผ่านระบบธนาคาร",
+        isSuccess: true, // true so manual bypass doesn't trigger AI success warning banner
+      });
+      setSelectedMemberId("new");
+      setCreateNewMember(true);
+      setNewMemberNickname("");
     } finally {
       setLoading(false);
     }
@@ -235,6 +225,30 @@ export default function SlipUploader({ members, onUploadSuccess, activeGroupId }
       createNewMember ? newMemberNickname : null
     );
 
+    // Show success info panel
+    const matched = members.find((m) => m.id === selectedMemberId);
+    setSuccessInfo({
+      amount: finalAmount,
+      nickname: createNewMember ? (newMemberNickname || "เพื่อนใหม่") : (matched?.nickname || matched?.name || "เพื่อน"),
+      isNew: createNewMember,
+      senderName: parsedResult.senderName || "ผู้โอนเงิน",
+      bank: parsedResult.bank || "ธนาคาร",
+      date: parsedResult.date,
+      time: parsedResult.time,
+    });
+
+    // Automatically reset / dismiss after 6 seconds
+    const targetAmount = finalAmount;
+    const targetSender = parsedResult.senderName;
+    setTimeout(() => {
+      setSuccessInfo((prev) => {
+        if (prev && prev.amount === targetAmount && prev.senderName === targetSender) {
+          return null;
+        }
+        return prev;
+      });
+    }, 6000);
+
     // Reset Form
     setParsedResult(null);
     setSelectedMemberId("");
@@ -286,7 +300,7 @@ export default function SlipUploader({ members, onUploadSuccess, activeGroupId }
               type="file"
               ref={fileInputRef}
               onChange={handleFileChange}
-              accept="image/*,application/pdf,.heic,.heif"
+              accept="*/*"
               className="hidden"
             />
             <input
@@ -299,10 +313,10 @@ export default function SlipUploader({ members, onUploadSuccess, activeGroupId }
             />
             <UploadCloud className={`w-12 h-12 mb-2 transition ${isDragOver ? "text-emerald-400 scale-110 animate-bounce" : "text-slate-500"}`} />
             <p className="text-sm font-semibold text-slate-200 font-sans text-center">
-              ลากและวางรูปภาพสลิปที่นี่ หรือคลิกเพื่อเลือกไฟล์
+              ลากและวางไฟล์สลิปที่นี่ หรือคลิกเพื่อเลือกไฟล์
             </p>
             <p className="text-xs text-slate-500 font-sans text-center mt-1.5 max-w-md">
-              รองรับรูปภาพ (PNG, JPG, WEBP, HEIC) และไฟล์ PDF ระบบจะสแกน ชื่อคนโอน ยอดโอน วันเวลา และจับคู่กับเพื่อนอัตโนมัติ
+              รองรับไฟล์ทุกรูปแบบ (รูปภาพสลิป, HEIC, PDF, ไฟล์ข้อความ) ระบบจะสแกน ชื่อ ยอดโอน วันเวลา และจับคู่กับเพื่อนโดยอัตโนมัติ
             </p>
 
             <button
@@ -439,6 +453,15 @@ export default function SlipUploader({ members, onUploadSuccess, activeGroupId }
             </div>
 
             <form onSubmit={handleConfirmSubmit} className="space-y-4">
+              {!parsedResult.isSuccess && (
+                <div className="bg-amber-500/10 border border-amber-500/20 text-amber-400 p-3 rounded-xl flex items-start gap-2.5 text-xs">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-bold block mb-0.5">โปรดตรวจสอบรายละเอียดสลิป:</span>
+                    <span className="text-slate-300">AI ตรวจไม่พบข้อความโอนเงินสำเร็จหรืออาจไม่ใช่ไฟล์ภาพสลิปที่สมบูรณ์ กรุณาตรวจสอบยอดเงินและชื่อผู้โอนให้มั่นใจก่อนกดบันทึก</span>
+                  </div>
+                </div>
+              )}
               {/* Row 1: Amount & Bank */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
