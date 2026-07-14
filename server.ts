@@ -56,7 +56,10 @@ app.post("/api/parse-slip", async (req, res) => {
       try {
         console.log("HEIC/HEIF format detected. Converting to JPEG server-side...");
         const inputBuffer = Buffer.from(base64Data, "base64");
-        const outputBuffer = await heicConvert({
+        const convertFn = typeof heicConvert === "function"
+          ? heicConvert
+          : (heicConvert as any).default || heicConvert;
+        const outputBuffer = await convertFn({
           buffer: inputBuffer,
           format: "JPEG",
           quality: 0.8,
@@ -74,31 +77,36 @@ app.post("/api/parse-slip", async (req, res) => {
 
 Follow these strict rules to ensure absolute accuracy:
 1. SENDER NAME:
-   - Identify the sender's section (marked by "จาก", "ผู้โอน", "บัญชีผู้โอน", "โอนโดย", "Transfer From", "From").
-   - Extract the full name of the sender (Thai or English).
-   - Crucial: DO NOT confuse the sender with the receiver (marked by "ถึง", "ผู้รับโอน", "ผู้รับเงิน", "To", "Transfer To"). You MUST extract the SENDER, not the receiver.
-   - Clean any prefixes like "นาย", "นาง", "นางสาว", "น.ส.", "ด.ช.", "ด.ญ.", "MR.", "MRS.", "MS." to obtain the clean display name, but ensure the first and last names are fully captured (e.g. "สมชาย ดีมาก" or "Somchai Deemak").
+   - Identify the sender's full name.
+   - Layout Flow: In many modern Thai banking slips (such as K-Plus/K+, SCB Easy, Krungthai NEXT, Bangkok Bank), there might NOT be explicit text labels like "จาก" (From) or "ผู้โอน" (Sender). Instead, they represent the transaction using a vertical or horizontal flow with an arrow (e.g., "↓" or "➔").
+   - Arrow Rule: The FIRST block/name before the arrow is the SENDER (จาก). The SECOND block/name after the arrow is the RECIPIENT (ถึง). You MUST extract the SENDER (the first name/block). Do NOT extract the recipient!
+   - In some slips, explicit labels are used: "จาก", "ผู้โอน", "บัญชีผู้โอน", "โอนโดย", "Transfer From", "From".
+   - Clean any prefixes like "นาย", "นาง", "นางสาว", "น.ส.", "ด.ช.", "ด.ญ.", "MR.", "MRS.", "MS." to obtain the clean display name, but ensure the first and last names (or initials) are fully captured (e.g. "ปกป้อง ส" from "ด.ช. ปกป้อง ส", "สมชาย ดีมาก" from "นาย สมชาย ดีมาก").
 
 2. AMOUNT:
    - Identify the primary transfer amount (marked by "จำนวนเงิน", "จำนวน", "Amount", "THB").
-   - Extract the numeric value. Ignore commas (e.g. "1,500.00" or "150" should be extracted as 1500.00 or 150.0).
-   - Verify it is the actual transfer amount, not fee amount ("ค่าธรรมเนียม", "Fee") or remaining balance.
+   - Extract the numeric value. Ignore commas (e.g. "50.00 บาท" or "1,500.00" should be extracted as 50.00 or 1500.00).
+   - Ensure you are extracting the actual transferred amount, NOT the fee ("ค่าธรรมเนียม", "Fee") or remaining balance.
 
 3. DATE:
-   - Identify the transfer date.
-   - If the date is in Thai Buddhist Era (B.E. - e.g. "2569", "2568", "2567" or short "69", "68", "67"), convert it to Western Gregorian Era year (Gregorian Year = B.E. Year - 543). E.g., Year 2569/69 becomes 2026, 2568/68 becomes 2025, 2567/67 becomes 2024.
+   - Identify the transfer date (e.g., "14 ก.ค. 69" or "14 Jul 2026").
+   - BE Year Conversion: If the date is in Thai Buddhist Era (B.E. - e.g., "2569", "2568", "2567" or short "69", "68", "67"), convert it to Western Gregorian Era year (Gregorian Year = B.E. Year - 543 or 2000 + (Short B.E. Year - 43)).
+     - B.E. 2569 or 69 -> 2026
+     - B.E. 2568 or 68 -> 2025
+     - B.E. 2567 or 67 -> 2024
+     - B.E. 2570 or 70 -> 2027
    - Map Thai abbreviated months to standard month numbers:
      - ม.ค. -> 01, ก.พ. -> 02, มี.ค. -> 03, เม.ย. -> 04, พ.ค. -> 05, มิ.ย. -> 06
      - ก.ค. -> 07, ส.ค. -> 08, ก.ย. -> 09, ต.ค. -> 10, พ.ย. -> 11, ธ.ค. -> 12
-   - Format the date precisely as YYYY-MM-DD (e.g. "2026-07-12").
+   - Format the date precisely as YYYY-MM-DD (e.g. "2026-07-14").
 
 4. TIME:
-   - Identify the transaction time.
+   - Identify the transaction time (e.g., "08:59 น.").
    - Strip any Thai text like "น." or seconds if present.
-   - Format the time precisely as HH:MM (e.g. "10:30").
+   - Format the time precisely as HH:MM (e.g. "08:59").
 
 5. BANK NAME:
-   - Identify the originating bank of the transfer from logos or text (e.g. Kasikornbank/KBank, SCB, Krungthai/KTB, Bangkok Bank/BBL, Krungsri/BAY, Government Savings Bank/GSB, TMBThanachart/TTB, PromptPay, UOB).
+   - Identify the originating bank of the transfer from logos or text (e.g. K+ / KBank / Kasikornbank, SCB, Krungthai/KTB, Bangkok Bank/BBL, Krungsri/BAY, Government Savings Bank/GSB, TMBThanachart/TTB, PromptPay, UOB).
    - Use standard names or abbreviations (e.g. "KBank", "SCB", "PromptPay", "KTB", "BBL", "Krungsri", "TTB", "GSB").
 
 6. TRANSACTION STATUS:
@@ -118,44 +126,57 @@ Follow these strict rules to ensure absolute accuracy:
       text: prompt,
     };
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
-      contents: { parts: [imagePart, textPart] },
-      config: {
-        temperature: 0.1, // Set lower temperature for deterministic & accurate factual OCR parsing
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            senderName: {
-              type: Type.STRING,
-              description: "ชื่อผู้โอนเงินภาษาไทย หรืออังกฤษ ปราศจากคำนำหน้าชื่อ เช่น สมชาย ดีมาก หรือ Somchai Deemak",
-            },
-            amount: {
-              type: Type.NUMBER,
-              description: "จำนวนเงินที่โอนสำเร็จหลักที่เป็นตัวเลขทศนิยม เช่น 250.00",
-            },
-            date: {
-              type: Type.STRING,
-              description: "วันที่ทำการโอน รูปแบบ YYYY-MM-DD",
-            },
-            time: {
-              type: Type.STRING,
-              description: "เวลาที่ทำการโอน รูปแบบ HH:MM",
-            },
-            bank: {
-              type: Type.STRING,
-              description: "ชื่อย่อหรือชื่อเต็มของธนาคาร เช่น KBank, SCB, PromptPay, KTB, BBL",
-            },
-            isSuccess: {
-              type: Type.BOOLEAN,
-              description: "เป็นหลักฐานการโอนเงินที่ถูกต้องและสำเร็จจริงหรือไม่",
-            },
+    const config = {
+      temperature: 0.1, // Set lower temperature for deterministic & accurate factual OCR parsing
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          senderName: {
+            type: Type.STRING,
+            description: "ชื่อผู้โอนเงินภาษาไทย หรืออังกฤษ ปราศจากคำนำหน้าชื่อ เช่น สมชาย ดีมาก หรือ Somchai Deemak",
           },
-          required: ["senderName", "amount", "date", "time", "bank", "isSuccess"],
+          amount: {
+            type: Type.NUMBER,
+            description: "จำนวนเงินที่โอนสำเร็จหลักที่เป็นตัวเลขทศนิยม เช่น 250.00",
+          },
+          date: {
+            type: Type.STRING,
+            description: "วันที่ทำการโอน รูปแบบ YYYY-MM-DD",
+          },
+          time: {
+            type: Type.STRING,
+            description: "เวลาที่ทำการโอน รูปแบบ HH:MM",
+          },
+          bank: {
+            type: Type.STRING,
+            description: "ชื่อย่อหรือชื่อเต็มของธนาคาร เช่น KBank, SCB, PromptPay, KTB, BBL",
+          },
+          isSuccess: {
+            type: Type.BOOLEAN,
+            description: "เป็นหลักฐานการโอนเงินที่ถูกต้องและสำเร็จจริงหรือไม่",
+          },
         },
+        required: ["senderName", "amount", "date", "time", "bank", "isSuccess"],
       },
-    });
+    };
+
+    let response;
+    try {
+      console.log("Attempting to parse slip using primary model (gemini-3.1-flash-lite)...");
+      response = await ai.models.generateContent({
+        model: "gemini-3.1-flash-lite",
+        contents: { parts: [imagePart, textPart] },
+        config,
+      });
+    } catch (primaryError: any) {
+      console.warn("Primary model (gemini-3.1-flash-lite) failed or was unavailable, trying fallback (gemini-3.5-flash)... Error:", primaryError?.message || primaryError);
+      response = await ai.models.generateContent({
+        model: "gemini-3.5-flash",
+        contents: { parts: [imagePart, textPart] },
+        config,
+      });
+    }
 
     const resultText = response.text;
     if (!resultText) {
