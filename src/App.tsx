@@ -562,6 +562,25 @@ export default function App() {
     }
   };
 
+  const handleChangeDeviceId = async (newId: string): Promise<{ success: boolean; error?: string }> => {
+    const trimmed = newId.trim().toUpperCase();
+    if (!trimmed) {
+      return { success: false, error: "กรุณาระบุรหัสจำเครื่องที่ถูกต้อง" };
+    }
+    if (trimmed.length < 3) {
+      return { success: false, error: "รหัสจำเครื่องต้องมีอย่างน้อย 3 ตัวอักษรขึ้นไป" };
+    }
+    
+    try {
+      setDeviceId(trimmed);
+      localStorage.setItem("sb_device_id", trimmed);
+      return { success: true };
+    } catch (err) {
+      console.error("Error changing device key:", err);
+      return { success: false, error: "เกิดข้อผิดพลาดในการตั้งรหัสจำเครื่อง" };
+    }
+  };
+
   const handleDeleteActiveGroup = async () => {
     if (!activeGroupId) return;
 
@@ -640,6 +659,7 @@ export default function App() {
         createdGroupIds={createdGroupIds}
         deviceId={deviceId}
         onSyncDevice={handleSyncDevice}
+        onChangeDeviceId={handleChangeDeviceId}
       />
 
       {/* Main Content Body */}

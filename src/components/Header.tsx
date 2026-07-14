@@ -16,6 +16,7 @@ interface HeaderProps {
   createdGroupIds?: string[];
   deviceId?: string;
   onSyncDevice?: (targetDeviceId: string) => Promise<{ success: boolean; error?: string }>;
+  onChangeDeviceId?: (newDeviceId: string) => Promise<{ success: boolean; error?: string }>;
 }
 
 export default function Header({
@@ -31,6 +32,7 @@ export default function Header({
   createdGroupIds = [],
   deviceId = "",
   onSyncDevice,
+  onChangeDeviceId,
 }: HeaderProps) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
@@ -46,6 +48,10 @@ export default function Header({
   const [syncDeviceError, setSyncDeviceError] = useState("");
   const [syncDeviceSuccess, setSyncDeviceSuccess] = useState(false);
   const [copiedDeviceId, setCopiedDeviceId] = useState(false);
+  const [customDeviceInput, setCustomDeviceInput] = useState("");
+  const [customDeviceError, setCustomDeviceError] = useState("");
+  const [customDeviceSuccess, setCustomDeviceSuccess] = useState(false);
+  const [isEditingDeviceId, setIsEditingDeviceId] = useState(false);
 
   // Join group states
   const [showJoinModal, setShowJoinModal] = useState(false);
@@ -104,6 +110,25 @@ export default function Header({
     }
     setShowResetConfirm(false);
     setShowResetSuccess(true);
+  };
+
+  const handleCustomDeviceSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!customDeviceInput.trim()) return;
+    setCustomDeviceError("");
+    setCustomDeviceSuccess(false);
+    if (onChangeDeviceId) {
+      const result = await onChangeDeviceId(customDeviceInput);
+      if (result.success) {
+        setCustomDeviceSuccess(true);
+        setIsEditingDeviceId(false);
+        setTimeout(() => {
+          setCustomDeviceSuccess(false);
+        }, 3000);
+      } else {
+        setCustomDeviceError(result.error || "เกิดข้อผิดพลาดในการเปลี่ยนรหัสเครื่อง");
+      }
+    }
   };
 
   // Calculate Stats
@@ -630,33 +655,83 @@ export default function Header({
 
               <div className="space-y-4 text-sm text-slate-300 font-sans mb-6">
                 <p className="leading-relaxed text-xs">
-                  ระบบได้เปิดใช้งาน <strong className="text-emerald-400">ระบบจดจำเครื่องเรียบร้อยแล้ว</strong> บนเบราว์เซอร์นี้ หากปิดเว็บหรือรีโหลดหน้านี้ ข้อมูลกลุ่มเดิม ประวัติ และสิทธิ์หัวหน้ากลุ่มของท่านจะไม่รีเซ็ตหรือสูญหายแน่นอน!
+                  เพื่อแก้ปัญหาการล้างข้อมูลเบราว์เซอร์หรือการใช้โหมดไม่ระบุตัวตน (Incognito) สลิปบัดดี้เปิดโอกาสให้ท่าน <strong className="text-emerald-400">ตั้งรหัสจำเครื่องของคุณเองได้จริง</strong> ไม่ใช่แค่จำประวัติในเบราว์เซอร์เท่านั้น!
                 </p>
 
-                <div className="bg-slate-900 border border-slate-700/80 rounded-2xl p-4 space-y-2">
-                  <span className="block text-xs font-semibold text-slate-400">รหัสอุปกรณ์เครื่องนี้ (Device Key)</span>
-                  <div className="flex items-center justify-between gap-2 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm font-mono text-slate-200">
-                    <span className="text-emerald-400 font-bold tracking-wider">{deviceId}</span>
+                {customDeviceSuccess && (
+                  <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 p-3 rounded-2xl text-xs font-sans text-center font-semibold">
+                    🎉 เปลี่ยนรหัสจำเครื่องสำเร็จ! ขณะนี้ระบบจดจำเครื่องนี้ด้วยรหัสใหม่แล้ว
+                  </div>
+                )}
+
+                {!isEditingDeviceId ? (
+                  <div className="bg-slate-900 border border-slate-700/80 rounded-2xl p-4 space-y-3">
+                    <span className="block text-xs font-semibold text-slate-400">รหัสอุปกรณ์เครื่องนี้ (Device Key)</span>
+                    <div className="flex items-center justify-between gap-2 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-sm font-mono text-slate-200">
+                      <span className="text-emerald-400 font-bold tracking-wider">{deviceId}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(deviceId);
+                          setCopiedDeviceId(true);
+                          setTimeout(() => setCopiedDeviceId(false), 2000);
+                        }}
+                        className="p-1.5 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-emerald-400 transition"
+                        title="คัดลอกรหัสเครื่อง"
+                      >
+                        {copiedDeviceId ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                      </button>
+                    </div>
+                    
                     <button
                       type="button"
                       onClick={() => {
-                        navigator.clipboard.writeText(deviceId);
-                        setCopiedDeviceId(true);
-                        setTimeout(() => setCopiedDeviceId(false), 2000);
+                        setCustomDeviceInput(deviceId);
+                        setIsEditingDeviceId(true);
+                        setCustomDeviceError("");
                       }}
-                      className="p-1.5 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-emerald-400 transition"
-                      title="คัดลอกรหัสเครื่อง"
+                      className="w-full flex items-center justify-center gap-1.5 py-2 px-3 text-xs text-amber-400 hover:text-amber-300 bg-amber-500/5 hover:bg-amber-500/10 border border-amber-500/10 hover:border-amber-500/20 rounded-xl transition font-sans font-semibold cursor-pointer"
                     >
-                      {copiedDeviceId ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                      <span>⚙️ เปลี่ยนเป็นรหัสจำเครื่องที่คุณตั้งเอง (เช่น เบอร์มือถือ)</span>
                     </button>
                   </div>
-                  <p className="text-[10px] text-slate-500 leading-normal">
-                    💡 ท่านสามารถคัดลอกรหัสนี้ไปใช้ที่เครื่องอื่นเพื่อเชื่อมข้อมูลกลุ่มเข้าด้วยกันได้ทันที!
-                  </p>
-                </div>
+                ) : (
+                  <form onSubmit={handleCustomDeviceSubmit} className="bg-slate-900 border border-amber-500/20 rounded-2xl p-4 space-y-3">
+                    <span className="block text-xs font-semibold text-amber-400">ตั้งรหัสจำเครื่องที่คุณต้องการ</span>
+                    <p className="text-[10px] text-slate-400 leading-normal">
+                      แนะนำให้ใส่เป็น <strong className="text-amber-400">เบอร์โทรศัพท์มือถือ</strong> หรือ <strong className="text-amber-400">ชื่อภาษาอังกฤษที่จำง่าย</strong> เพื่อใช้สลับหรือเปิดประวัติกลุ่มสลิปได้จากทุกเบราว์เซอร์/อุปกรณ์โดยไม่มีวันหาย
+                    </p>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        required
+                        value={customDeviceInput}
+                        onChange={(e) => setCustomDeviceInput(e.target.value)}
+                        placeholder="เช่น 0891234567 หรือ MYIPAD"
+                        className="flex-1 px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-sm font-mono tracking-wider focus:outline-none focus:border-emerald-500 text-slate-100 transition"
+                      />
+                      <button
+                        type="submit"
+                        className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl font-bold text-xs transition cursor-pointer"
+                      >
+                        บันทึกรหัสใหม่
+                      </button>
+                    </div>
+                    {customDeviceError && (
+                      <p className="text-[11px] text-rose-400 font-medium">⚠️ {customDeviceError}</p>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setIsEditingDeviceId(false)}
+                      className="text-xs text-slate-400 hover:text-slate-300 font-sans cursor-pointer block"
+                    >
+                      ยกเลิกและย้อนกลับ
+                    </button>
+                  </form>
+                )}
 
                 {/* Sync form to pull data from another device */}
-                {onSyncDevice && (
+                {onSyncDevice && !isEditingDeviceId && (
                   <form
                     onSubmit={async (e) => {
                       e.preventDefault();
@@ -678,21 +753,24 @@ export default function Header({
                     className="border-t border-slate-700/50 pt-4 space-y-3"
                   >
                     <div>
-                      <label className="block text-xs font-semibold text-slate-400 mb-1.5 flex items-center gap-1.5">
-                        <RefreshCw className="w-3.5 h-3.5 text-emerald-400" /> เชื่อมข้อมูลกลุ่มจากเครื่องอื่น (Sync Device)
+                      <label className="block text-xs font-semibold text-slate-400 mb-1 flex items-center gap-1.5">
+                        <RefreshCw className="w-3.5 h-3.5 text-emerald-400 animate-spin-slow" /> ดึงข้อมูลกลุ่มจากรหัสเครื่องอื่น (Sync Device)
                       </label>
+                      <p className="text-[10px] text-slate-500 leading-normal mb-2">
+                        หากท่านย้ายเครื่อง, ซื้อโทรศัพท์ใหม่ หรือใช้เบราว์เซอร์อื่น เพียงกรอกรหัสจำเครื่องที่ท่านเคยตั้งไว้ด้านบนเพื่อโหลดข้อมูลทั้งหมดกลับคืนมาได้ทันที
+                      </p>
                       <div className="flex gap-2">
                         <input
                           type="text"
                           required
                           value={syncDeviceInput}
                           onChange={(e) => setSyncDeviceInput(e.target.value)}
-                          placeholder="ป้อนรหัสอุปกรณ์เครื่องเก่า เช่น DEV-XXXX"
+                          placeholder="ป้อนรหัสอุปกรณ์เครื่องเก่า เช่น เบอร์โทร"
                           className="flex-1 px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-sm font-mono tracking-wider focus:outline-none focus:border-emerald-500 text-slate-100 transition"
                         />
                         <button
                           type="submit"
-                          className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl font-bold text-xs transition flex-shrink-0"
+                          className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl font-bold text-xs transition flex-shrink-0 cursor-pointer"
                         >
                           ดึงข้อมูลมา
                         </button>
@@ -721,8 +799,9 @@ export default function Header({
                     setShowDeviceModal(false);
                     setSyncDeviceError("");
                     setSyncDeviceSuccess(false);
+                    setIsEditingDeviceId(false);
                   }}
-                  className="px-5 py-2 bg-slate-700 hover:bg-slate-600 rounded-xl text-xs font-bold text-slate-200 transition"
+                  className="px-5 py-2 bg-slate-700 hover:bg-slate-600 rounded-xl text-xs font-bold text-slate-200 transition cursor-pointer"
                 >
                   ปิดหน้าต่าง
                 </button>
