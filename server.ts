@@ -75,18 +75,23 @@ app.post("/api/parse-slip", async (req, res) => {
     // Structured prompt for bank slip details extraction with extreme accuracy rules
     const prompt = `Analyze this Thai bank transfer slip image and accurately extract the transaction details.
 
-Follow these strict rules to ensure absolute accuracy:
-1. SENDER NAME:
-   - Identify the sender's full name.
-   - Layout Flow: In many modern Thai banking slips (such as K-Plus/K+, SCB Easy, Krungthai NEXT, Bangkok Bank), there might NOT be explicit text labels like "จาก" (From) or "ผู้โอน" (Sender). Instead, they represent the transaction using a vertical or horizontal flow with an arrow (e.g., "↓" or "➔").
-   - Arrow Rule: The FIRST block/name before the arrow is the SENDER (จาก). The SECOND block/name after the arrow is the RECIPIENT (ถึง). You MUST extract the SENDER (the first name/block). Do NOT extract the recipient!
-   - In some slips, explicit labels are used: "จาก", "ผู้โอน", "บัญชีผู้โอน", "โอนโดย", "Transfer From", "From".
-   - Clean any prefixes like "นาย", "นาง", "นางสาว", "น.ส.", "ด.ช.", "ด.ญ.", "MR.", "MRS.", "MS." to obtain the clean display name, but ensure the first and last names (or initials) are fully captured (e.g. "ปกป้อง ส" from "ด.ช. ปกป้อง ส", "สมชาย ดีมาก" from "นาย สมชาย ดีมาก").
+CRITICAL PRIORITIES:
+- SENDER NAME (ชื่อผู้โอน) and AMOUNT (จำนวนเงิน) are the MOST CRITICAL fields. You MUST pay 200% attention to these. Double-check all characters, vowels, and digits.
 
-2. AMOUNT:
-   - Identify the primary transfer amount (marked by "จำนวนเงิน", "จำนวน", "Amount", "THB").
-   - Extract the numeric value. Ignore commas (e.g. "50.00 บาท" or "1,500.00" should be extracted as 50.00 or 1500.00).
-   - Ensure you are extracting the actual transferred amount, NOT the fee ("ค่าธรรมเนียม", "Fee") or remaining balance.
+Follow these strict rules to ensure absolute accuracy:
+1. SENDER NAME (เน้นเป็นพิเศษ):
+   - Locate the SENDER's full name (ชื่อผู้โอน / จาก).
+   - Look for labels: "ผู้โอน", "จาก", "บัญชีผู้โอน", "โอนโดย", "Transfer From", "From", "Snd:".
+   - Layout Flow: In many modern Thai banking slips (such as K-Plus/K+, SCB Easy, Krungthai NEXT, Bangkok Bank), there might NOT be explicit text labels like "จาก" (From) or "ผู้โอน" (Sender). Instead, they represent the transaction using a vertical or horizontal flow with an arrow (e.g., "↓", "→", "➔").
+   - Arrow Rule: The FIRST block/name before the arrow is the SENDER (จาก). The SECOND block/name after the arrow is the RECIPIENT (ถึง). You MUST extract the SENDER (the first name/block). Do NOT extract the recipient!
+   - Ensure you read every single character (including Thai vowels, tone marks like ่, ้, ๊, ๋, ็, ์, and sub-vowels like ุ, ู, ิ, ี, ึ, ื) with maximum care. Do not drop letters.
+   - Clean any prefixes like "นาย", "นาง", "นางสาว", "น.ส.", "ด.ช.", "ด.ญ.", "MR.", "MRS.", "MS." to obtain the clean display name, but ensure the first and last names (or initials) are fully captured (e.g. "ปกป้อง ส" from "ด.ช. ปกป้อง ส", "สมชาย ดีมาก" from "นาย สมชาย ดีมาก"). If it is a company or store name, extract it clearly.
+
+2. AMOUNT (เน้นเป็นพิเศษ):
+   - Locate the main transfer amount (จำนวนเงิน / ยอดโอน). It is usually in a larger font size.
+   - Look for labels: "จำนวนเงิน", "จำนวน", "ยอดโอน", "Amount", "THB", "บาท".
+   - Extract the absolute numeric value. Ignore currency symbols and commas (e.g., "฿150.00", "150.00 บาท", "1,500.00 THB" should be extracted as 150.00 or 1500.00).
+   - Double-check that you do NOT extract the fee ("ค่าธรรมเนียม", "Fee") or the remaining balance. The transfer amount must be the exact successful transferred value.
 
 3. DATE:
    - Identify the transfer date (e.g., "14 ก.ค. 69" or "14 Jul 2026").
@@ -134,11 +139,11 @@ Follow these strict rules to ensure absolute accuracy:
         properties: {
           senderName: {
             type: Type.STRING,
-            description: "ชื่อผู้โอนเงินภาษาไทย หรืออังกฤษ ปราศจากคำนำหน้าชื่อ เช่น สมชาย ดีมาก หรือ Somchai Deemak",
+            description: "ชื่อเต็มผู้โอนเงินที่ถูกต้องที่สุด (ภาษาไทย หรือ อังกฤษ) ต้องไม่มีคำนำหน้าชื่อ และต้องพยายามอ่านสระ วรรณยุกต์ให้ครบถ้วน ห้ามสะกดผิด เช่น 'สมชาย ดีมาก' หรือ 'Somchai Deemak'",
           },
           amount: {
             type: Type.NUMBER,
-            description: "จำนวนเงินที่โอนสำเร็จหลักที่เป็นตัวเลขทศนิยม เช่น 250.00",
+            description: "ตัวเลขยอดเงินที่โอนสำเร็จจริงๆ เท่านั้น (ห้ามรวมค่าธรรมเนียม) เป็นเลขทศนิยม เช่น 250.00",
           },
           date: {
             type: Type.STRING,
@@ -163,19 +168,28 @@ Follow these strict rules to ensure absolute accuracy:
 
     let response;
     try {
-      console.log("Attempting to parse slip using primary model (gemini-3.1-flash-lite)...");
+      console.log("Attempting to parse slip using primary model (gemini-2.5-flash)...");
       response = await ai.models.generateContent({
-        model: "gemini-3.1-flash-lite",
+        model: "gemini-2.5-flash",
         contents: { parts: [imagePart, textPart] },
         config,
       });
     } catch (primaryError: any) {
-      console.warn("Primary model (gemini-3.1-flash-lite) failed or was unavailable, trying fallback (gemini-3.5-flash)... Error:", primaryError?.message || primaryError);
-      response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
-        contents: { parts: [imagePart, textPart] },
-        config,
-      });
+      console.warn("Primary model (gemini-2.5-flash) failed, trying fallback (gemini-2.5-pro)... Error:", primaryError?.message || primaryError);
+      try {
+        response = await ai.models.generateContent({
+          model: "gemini-2.5-pro",
+          contents: { parts: [imagePart, textPart] },
+          config,
+        });
+      } catch (fallbackError: any) {
+        console.warn("Fallback model (gemini-2.5-pro) failed, trying secondary fallback (gemini-1.5-flash)... Error:", fallbackError?.message || fallbackError);
+        response = await ai.models.generateContent({
+          model: "gemini-1.5-flash",
+          contents: { parts: [imagePart, textPart] },
+          config,
+        });
+      }
     }
 
     const resultText = response.text;
