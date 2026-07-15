@@ -17,6 +17,12 @@ interface HeaderProps {
   deviceId?: string;
   onSyncDevice?: (targetDeviceId: string) => Promise<{ success: boolean; error?: string }>;
   onChangeDeviceId?: (newDeviceId: string) => Promise<{ success: boolean; error?: string }>;
+  // Profile settings props
+  profileNickname?: string;
+  profileRealName?: string;
+  profileEmoji?: string;
+  profileMemberId?: string;
+  onUpdateProfile?: (nickname: string, realName: string, emoji: string, memberId: string) => void;
 }
 
 export default function Header({
@@ -33,6 +39,11 @@ export default function Header({
   deviceId = "",
   onSyncDevice,
   onChangeDeviceId,
+  profileNickname = "",
+  profileRealName = "",
+  profileEmoji = "🦊",
+  profileMemberId = "",
+  onUpdateProfile,
 }: HeaderProps) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
@@ -41,6 +52,36 @@ export default function Header({
   const [newGroupPasscode, setNewGroupPasscode] = useState("");
   const [createGroupError, setCreateGroupError] = useState("");
   const [showSelector, setShowSelector] = useState(false);
+
+  // Profile states
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [profileNickInput, setProfileNickInput] = useState("");
+  const [profileRealInput, setProfileRealInput] = useState("");
+  const [selectedEmoji, setSelectedEmoji] = useState("🦊");
+  const [linkedMemberSelect, setLinkedMemberSelect] = useState("");
+
+  const EMOJIS = ["🦊", "🐼", "🐨", "🐯", "🦁", "🐱", "🐶", "🐰", "🐷", "🐸", "🐵", "🦄", "🐙", "🦖", "🐧", "🦉", "🦕", "🐹", "🐝", "🐥"];
+
+  const handleOpenProfileModal = () => {
+    setProfileNickInput(profileNickname);
+    setProfileRealInput(profileRealName);
+    setSelectedEmoji(profileEmoji || "🦊");
+    setLinkedMemberSelect(profileMemberId);
+    setShowProfileModal(true);
+  };
+
+  const handleSaveProfile = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (onUpdateProfile) {
+      onUpdateProfile(
+        profileNickInput.trim() || "เพื่อนใหม่",
+        profileRealInput.trim(),
+        selectedEmoji,
+        linkedMemberSelect
+      );
+    }
+    setShowProfileModal(false);
+  };
 
   // Device states
   const [showDeviceModal, setShowDeviceModal] = useState(false);
@@ -223,6 +264,16 @@ export default function Header({
                    <span>{deviceId}</span>
                  </button>
                )}
+
+               <button
+                 onClick={handleOpenProfileModal}
+                 className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700/80 text-teal-400 border border-slate-700 hover:border-slate-600 px-3 py-2 rounded-xl text-xs font-sans font-bold shadow-sm transition cursor-pointer"
+                 title="ตั้งค่าโปรไฟล์และรายชื่อของคุณ"
+               >
+                 <span className="text-sm shrink-0">{profileEmoji || "🦊"}</span>
+                 <span className="hidden sm:inline">โปรไฟล์:</span>
+                 <span className="max-w-[80px] truncate">{profileNickname || "ตั้งค่าโปรไฟล์"}</span>
+               </button>
 
                {isLeader ? (
                  <div className="flex items-center gap-1.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-3 py-2 rounded-xl text-xs font-sans font-bold shadow-sm">
@@ -806,6 +857,118 @@ export default function Header({
                   ปิดหน้าต่าง
                 </button>
               </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Profile Setup Modal */}
+      <AnimatePresence>
+        {showProfileModal && (
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-slate-800 border border-slate-700 rounded-3xl w-full max-w-md p-6 shadow-2xl text-slate-100"
+            >
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 rounded-2xl bg-teal-500/10 border border-teal-500/20 flex items-center justify-center text-xl">
+                  👤
+                </div>
+                <div>
+                  <h3 className="text-base font-bold font-sans">ตั้งค่าโปรไฟล์ส่วนตัวของคุณ</h3>
+                  <p className="text-[10px] text-teal-400 font-mono mt-0.5">MY PROFILE SETTINGS</p>
+                </div>
+              </div>
+
+              <form onSubmit={handleSaveProfile} className="space-y-4 font-sans text-xs text-slate-300">
+                {/* Emojis selection */}
+                <div>
+                  <label className="block text-slate-400 mb-1.5 font-semibold">เลือกไอคอนอิโมจิประจำตัว:</label>
+                  <div className="grid grid-cols-6 gap-2 bg-slate-900/60 p-3 rounded-2xl border border-slate-700/50 max-h-36 overflow-y-auto">
+                    {EMOJIS.map((emoji) => (
+                      <button
+                        key={emoji}
+                        type="button"
+                        onClick={() => setSelectedEmoji(emoji)}
+                        className={`text-xl p-2 rounded-xl hover:bg-slate-800 transition ${
+                          selectedEmoji === emoji ? "bg-teal-500/20 border border-teal-500/50 scale-110" : "border border-transparent"
+                        }`}
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Nickname */}
+                <div>
+                  <label className="block text-slate-400 mb-1.5 font-semibold">ชื่อเล่น / ชื่อเรียกเพื่อนร่วมก๊วน:</label>
+                  <input
+                    type="text"
+                    required
+                    maxLength={15}
+                    value={profileNickInput}
+                    onChange={(e) => setProfileNickInput(e.target.value)}
+                    placeholder="เช่น รักดี, บอส, แจน"
+                    className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-xs focus:outline-none focus:border-teal-500 text-slate-100 transition"
+                  />
+                </div>
+
+                {/* Real Name */}
+                <div>
+                  <label className="block text-slate-400 mb-1 font-semibold">
+                    ชื่อจริง (ใช้ตรวจสอบสลิปอัตโนมัติ):
+                  </label>
+                  <span className="block text-[10px] text-slate-500 mb-1.5 leading-relaxed">
+                    *กรอกชื่อจริงภาษาไทย/อังกฤษตามที่ปรากฏในสลิปโอนเงิน เพื่อให้ AI ตรวจจับและแมตช์สลิปของคุณโดยตรง
+                  </span>
+                  <input
+                    type="text"
+                    value={profileRealInput}
+                    onChange={(e) => setProfileRealInput(e.target.value)}
+                    placeholder="เช่น รักดี มีสุข, RAKDEE MEESOOK"
+                    className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-xs focus:outline-none focus:border-teal-500 text-slate-100 transition"
+                  />
+                </div>
+
+                {/* Link member in group */}
+                {activeGroupId && (
+                  <div>
+                    <label className="block text-slate-400 mb-1.5 font-semibold">เชื่อมต่อกับรายชื่อสมาชิกในก๊วนนี้:</label>
+                    <select
+                      value={linkedMemberSelect}
+                      onChange={(e) => setLinkedMemberSelect(e.target.value)}
+                      className="w-full px-3 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-xs focus:outline-none focus:border-teal-500 text-slate-100"
+                    >
+                      <option value="">-- ไม่ระบุ (ผู้ดูแล/ผู้สังเกตการณ์ภายนอก) --</option>
+                      <option value="create_new">✨ เพิ่มรายชื่อใหม่เพื่อแทนตัวฉัน (ใช้ชื่อด้านบน)</option>
+                      {members.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.nickname} {m.name !== m.nickname ? `(${m.name})` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-700/50 mt-4">
+                  <button
+                    type="button"
+                    onClick={() => setShowProfileModal(false)}
+                    className="px-4 py-2 text-slate-400 hover:text-slate-200 transition text-xs font-semibold cursor-pointer"
+                  >
+                    ยกเลิก
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-5 py-2 bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold rounded-xl text-xs transition cursor-pointer shadow-md"
+                  >
+                    บันทึกโปรไฟล์
+                  </button>
+                </div>
+              </form>
             </motion.div>
           </div>
         )}

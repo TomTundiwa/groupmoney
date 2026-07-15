@@ -22,6 +22,11 @@ export default function App() {
     }
     return id;
   });
+  const [profileNickname, setProfileNickname] = useState<string>(() => localStorage.getItem("sb_profile_nickname") || "");
+  const [profileRealName, setProfileRealName] = useState<string>(() => localStorage.getItem("sb_profile_realname") || "");
+  const [profileEmoji, setProfileEmoji] = useState<string>(() => localStorage.getItem("sb_profile_emoji") || "🦊");
+  const [profileMemberId, setProfileMemberId] = useState<string>(() => localStorage.getItem("sb_profile_member_id") || "");
+
   const [activeGroupId, setActiveGroupId] = useState<string>(() => {
     return localStorage.getItem("sb_active_id") || "";
   });
@@ -128,12 +133,37 @@ export default function App() {
         let cloudCreated: string[] = [];
         let cloudUnlocked: string[] = [];
         let cloudActiveId = "";
+        let cloudNickname = "";
+        let cloudRealName = "";
+        let cloudEmoji = "🦊";
+        let cloudMemberId = "";
 
         if (docSnap.exists()) {
           const data = docSnap.data();
           cloudCreated = data.createdGroupIds || [];
           cloudUnlocked = data.unlockedGroupIds || [];
           cloudActiveId = data.lastActiveGroupId || "";
+          cloudNickname = data.profileNickname || "";
+          cloudRealName = data.profileRealName || "";
+          cloudEmoji = data.profileEmoji || "🦊";
+          cloudMemberId = data.profileMemberId || "";
+        }
+
+        if (cloudNickname) {
+          setProfileNickname(cloudNickname);
+          localStorage.setItem("sb_profile_nickname", cloudNickname);
+        }
+        if (cloudRealName) {
+          setProfileRealName(cloudRealName);
+          localStorage.setItem("sb_profile_realname", cloudRealName);
+        }
+        if (cloudEmoji) {
+          setProfileEmoji(cloudEmoji);
+          localStorage.setItem("sb_profile_emoji", cloudEmoji);
+        }
+        if (cloudMemberId) {
+          setProfileMemberId(cloudMemberId);
+          localStorage.setItem("sb_profile_member_id", cloudMemberId);
         }
 
         // Merge cloud and local state to prevent losing access
@@ -204,6 +234,10 @@ export default function App() {
           createdGroupIds,
           unlockedGroupIds,
           lastActiveGroupId: activeGroupId,
+          profileNickname,
+          profileRealName,
+          profileEmoji,
+          profileMemberId,
           updatedAt: new Date().toISOString()
         }, { merge: true });
       } catch (err) {
@@ -211,7 +245,7 @@ export default function App() {
       }
     };
     updateDeviceCloud();
-  }, [createdGroupIds, unlockedGroupIds, activeGroupId, deviceId]);
+  }, [createdGroupIds, unlockedGroupIds, activeGroupId, deviceId, profileNickname, profileRealName, profileEmoji, profileMemberId]);
 
 
 
@@ -524,6 +558,49 @@ export default function App() {
     }
   };
 
+  const handleUpdateProfile = async (nickname: string, realName: string, emoji: string, memberId: string) => {
+    let finalMemberId = memberId;
+
+    if (memberId === "create_new" && activeGroupId) {
+      const newMemberId = `m-${Date.now()}`;
+      const newMember: Member = {
+        id: newMemberId,
+        groupId: activeGroupId,
+        name: realName || nickname || "ฉันเอง",
+        nickname: nickname || "ฉันเอง",
+        createdAt: new Date().toISOString(),
+      };
+      try {
+        await setDoc(doc(db, "members", newMemberId), newMember);
+        finalMemberId = newMemberId;
+      } catch (err) {
+        console.error("Error creating member for profile:", err);
+      }
+    }
+
+    setProfileNickname(nickname);
+    setProfileRealName(realName);
+    setProfileEmoji(emoji);
+    setProfileMemberId(finalMemberId);
+
+    localStorage.setItem("sb_profile_nickname", nickname);
+    localStorage.setItem("sb_profile_realname", realName);
+    localStorage.setItem("sb_profile_emoji", emoji);
+    localStorage.setItem("sb_profile_member_id", finalMemberId);
+
+    // If linked to an existing member, update that member's name & nickname in database
+    if (finalMemberId && finalMemberId !== "create_new") {
+      try {
+        await updateDoc(doc(db, "members", finalMemberId), {
+          nickname,
+          name: realName || nickname
+        });
+      } catch (err) {
+        console.error("Error updating linked member:", err);
+      }
+    }
+  };
+
   const handleSyncDevice = async (targetDeviceId: string): Promise<{ success: boolean; error?: string }> => {
     if (!targetDeviceId.trim()) return { success: false, error: "กรุณาระบุรหัสเครื่องที่ต้องการเชื่อมต่อ" };
     const cleanedId = targetDeviceId.trim().toUpperCase();
@@ -660,6 +737,11 @@ export default function App() {
         deviceId={deviceId}
         onSyncDevice={handleSyncDevice}
         onChangeDeviceId={handleChangeDeviceId}
+        profileNickname={profileNickname}
+        profileRealName={profileRealName}
+        profileEmoji={profileEmoji}
+        profileMemberId={profileMemberId}
+        onUpdateProfile={handleUpdateProfile}
       />
 
       {/* Main Content Body */}
@@ -764,6 +846,9 @@ export default function App() {
                   members={activeMembers}
                   onUploadSuccess={handleSlipUploadSuccess}
                   activeGroupId={activeGroupId}
+                  profileMemberId={profileMemberId}
+                  profileRealName={profileRealName}
+                  profileNickname={profileNickname}
                 />
                 <TransactionHistory
                   transactions={activeTransactions}
@@ -788,6 +873,9 @@ export default function App() {
                   onEditMember={handleEditMember}
                   isLeader={isLeader}
                   isGlobalLeader={isLeader}
+                  profileMemberId={profileMemberId}
+                  profileEmoji={profileEmoji}
+                  profileNickname={profileNickname}
                 />
               </div>
             </div>

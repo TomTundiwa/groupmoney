@@ -14,6 +14,9 @@ interface MemberManagerProps {
   onEditMember?: (id: string, name: string, nickname: string, newTotalPaid?: number) => void;
   isLeader?: boolean;
   isGlobalLeader?: boolean;
+  profileMemberId?: string;
+  profileEmoji?: string;
+  profileNickname?: string;
 }
 
 export default function MemberManager({
@@ -26,12 +29,16 @@ export default function MemberManager({
   onEditMember,
   isLeader = false,
   isGlobalLeader = false,
+  profileMemberId = "",
+  profileEmoji = "🦊",
+  profileNickname = "",
 }: MemberManagerProps) {
   const [showAddForm, setShowAddForm] = useState(false);
   const [nameInput, setNameInput] = useState("");
   const [nicknameInput, setNicknameInput] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<"default" | "unpaid" | "paid" | "alphabetical">("default");
 
   // Edit States
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -102,6 +109,31 @@ export default function MemberManager({
       m.name.toLowerCase().includes(term) ||
       m.nickname.toLowerCase().includes(term)
     );
+  });
+
+  const sortedMembers = [...filteredMembers].sort((a, b) => {
+    if (sortBy === "paid") {
+      // Paid fully first
+      if (a.isPaidFully && !b.isPaidFully) return -1;
+      if (!a.isPaidFully && b.isPaidFully) return 1;
+      // Partial vs Unpaid (Partial first)
+      if (a.isPartial && !b.isPartial) return -1;
+      if (!a.isPartial && b.isPartial) return 1;
+      return 0;
+    }
+    if (sortBy === "unpaid") {
+      // Unpaid / Not paid fully first (deficit first)
+      if (!a.isPaidFully && b.isPaidFully) return -1;
+      if (a.isPaidFully && !b.isPaidFully) return 1;
+      // Completely Unpaid (not partial) first
+      if (!a.isPartial && b.isPartial) return -1;
+      if (a.isPartial && !b.isPartial) return 1;
+      return 0;
+    }
+    if (sortBy === "alphabetical") {
+      return a.nickname.localeCompare(b.nickname, "th");
+    }
+    return 0; // "default" preserves database / original group order
   });
 
   const selectedMember = memberListWithStats.find((m) => m.id === selectedMemberId);
@@ -181,7 +213,7 @@ export default function MemberManager({
       </AnimatePresence>
 
       {/* Search Input */}
-      <div className="relative mb-4">
+      <div className="relative mb-3">
         <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-500">
           <Search className="w-4 h-4" />
         </span>
@@ -194,14 +226,65 @@ export default function MemberManager({
         />
       </div>
 
+      {/* Modern Sorting Options Segment Control */}
+      <div className="flex flex-wrap items-center gap-1.5 mb-4 text-[11px] font-sans text-slate-400 bg-slate-950/40 p-1.5 rounded-xl border border-slate-850">
+        <span className="pl-1 mr-1 text-slate-500 font-medium">เรียงลำดับ:</span>
+        <button
+          type="button"
+          onClick={() => setSortBy("default")}
+          className={`px-2.5 py-1 rounded-lg transition-all duration-150 cursor-pointer ${
+            sortBy === "default"
+              ? "bg-slate-800 text-slate-100 font-semibold shadow-sm border border-slate-700"
+              : "text-slate-400 border border-transparent hover:text-slate-200"
+          }`}
+        >
+          ทั่วไป
+        </button>
+        <button
+          type="button"
+          onClick={() => setSortBy("unpaid")}
+          className={`px-2.5 py-1 rounded-lg transition-all duration-150 cursor-pointer flex items-center gap-1 ${
+            sortBy === "unpaid"
+              ? "bg-amber-500/10 text-amber-400 font-semibold border border-amber-500/20"
+              : "text-slate-400 border border-transparent hover:text-slate-200"
+          }`}
+        >
+          <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+          ยังไม่จ่ายก่อน
+        </button>
+        <button
+          type="button"
+          onClick={() => setSortBy("paid")}
+          className={`px-2.5 py-1 rounded-lg transition-all duration-150 cursor-pointer flex items-center gap-1 ${
+            sortBy === "paid"
+              ? "bg-emerald-500/10 text-emerald-400 font-semibold border border-emerald-500/20"
+              : "text-slate-400 border border-transparent hover:text-slate-200"
+          }`}
+        >
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+          จ่ายแล้วก่อน
+        </button>
+        <button
+          type="button"
+          onClick={() => setSortBy("alphabetical")}
+          className={`px-2.5 py-1 rounded-lg transition-all duration-150 cursor-pointer ${
+            sortBy === "alphabetical"
+              ? "bg-slate-800 text-slate-100 font-semibold shadow-sm border border-slate-700"
+              : "text-slate-400 border border-transparent hover:text-slate-200"
+          }`}
+        >
+          ก-ฮ
+        </button>
+      </div>
+
       {/* Member Items Grid/List */}
-      {filteredMembers.length === 0 ? (
+      {sortedMembers.length === 0 ? (
         <div className="text-center py-8 border border-dashed border-slate-800 rounded-2xl text-slate-500 text-xs">
           ยังไม่มีรายชื่อสมาชิกในกลุ่มนี้
         </div>
       ) : (
         <div className="space-y-2 max-h-96 overflow-y-auto pr-1" id="members-list">
-          {filteredMembers.map((m) => (
+          {sortedMembers.map((m) => (
             editingId === m.id ? (
               <div
                 key={m.id}
@@ -273,12 +356,17 @@ export default function MemberManager({
                         : "bg-slate-800 text-slate-400 border border-slate-700/50"
                     }`}
                   >
-                    {m.nickname.charAt(0).toUpperCase()}
+                    {m.id === profileMemberId ? (profileEmoji || "🦊") : m.nickname.charAt(0).toUpperCase()}
                   </div>
 
                   <div className="min-w-0">
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 flex-wrap">
                       <p className="text-xs font-semibold text-slate-200 truncate group-hover:text-emerald-400 transition">{m.nickname}</p>
+                      {m.id === profileMemberId && (
+                        <span className="text-[9px] font-sans font-semibold text-teal-400 bg-teal-500/10 border border-teal-500/25 px-1.5 py-0.5 rounded shrink-0">
+                          คุณ (Me)
+                        </span>
+                      )}
                       {m.name !== m.nickname && (
                         <p className="text-[10px] text-slate-500 truncate">({m.name})</p>
                       )}

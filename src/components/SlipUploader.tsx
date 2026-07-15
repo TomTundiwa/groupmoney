@@ -12,9 +12,19 @@ interface SlipUploaderProps {
     createMemberNickname: string | null
   ) => void;
   activeGroupId: string;
+  profileMemberId?: string;
+  profileRealName?: string;
+  profileNickname?: string;
 }
 
-export default function SlipUploader({ members, onUploadSuccess, activeGroupId }: SlipUploaderProps) {
+export default function SlipUploader({
+  members,
+  onUploadSuccess,
+  activeGroupId,
+  profileMemberId = "",
+  profileRealName = "",
+  profileNickname = "",
+}: SlipUploaderProps) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadingStep, setLoadingStep] = useState("");
@@ -184,6 +194,26 @@ export default function SlipUploader({ members, onUploadSuccess, activeGroupId }
   const autoMatchMember = (parsedName: string, memberList: Member[]): Member | null => {
     if (!parsedName) return null;
     const lowerParsed = parsedName.toLowerCase();
+
+    // 0. Check if it matches the current user's profile names
+    if (profileMemberId) {
+      const myMember = memberList.find((m) => m.id === profileMemberId);
+      if (myMember) {
+        const name = myMember.name.toLowerCase();
+        const nickname = myMember.nickname.toLowerCase();
+        const profileReal = profileRealName?.toLowerCase();
+        const profileNick = profileNickname?.toLowerCase();
+
+        if (
+          (profileReal && (lowerParsed.includes(profileReal) || profileReal.includes(lowerParsed))) ||
+          (profileNick && (lowerParsed.includes(profileNick) || profileNick.includes(lowerParsed))) ||
+          lowerParsed.includes(name) || name.includes(lowerParsed) ||
+          (nickname && (lowerParsed.includes(nickname) || nickname.includes(lowerParsed)))
+        ) {
+          return myMember;
+        }
+      }
+    }
 
     // 1. Try exact or full contains match
     for (const member of memberList) {
