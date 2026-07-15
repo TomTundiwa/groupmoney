@@ -167,38 +167,166 @@ Follow these strict rules to ensure absolute accuracy:
     };
 
     let response;
-    try {
-      console.log("Attempting to parse slip using primary model (gemini-2.5-flash)...");
-      response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: { parts: [imagePart, textPart] },
-        config,
-      });
-    } catch (primaryError: any) {
-      console.warn("Primary model (gemini-2.5-flash) failed, trying fallback (gemini-2.5-pro)... Error:", primaryError?.message || primaryError);
+    let lastError: any = null;
+    let succeededModel = "";
+
+    const modelsToTry = [
+      "gemini-2.5-flash",
+      "gemini-3.1-flash-lite",
+      "gemini-flash-latest",
+      "gemini-3.5-flash"
+    ];
+
+    // 1. Try with responseSchema (structured output) first across all models
+    for (const modelName of modelsToTry) {
       try {
+        console.log(`[SLIP PARSER] Attempting with model: ${modelName} (structured schema)...`);
         response = await ai.models.generateContent({
-          model: "gemini-2.5-pro",
+          model: modelName,
           contents: { parts: [imagePart, textPart] },
           config,
         });
-      } catch (fallbackError: any) {
-        console.warn("Fallback model (gemini-2.5-pro) failed, trying secondary fallback (gemini-1.5-flash)... Error:", fallbackError?.message || fallbackError);
-        response = await ai.models.generateContent({
-          model: "gemini-1.5-flash",
-          contents: { parts: [imagePart, textPart] },
-          config,
-        });
+        succeededModel = modelName;
+        break; // Successfully got response
+      } catch (err: any) {
+        console.warn(`[SLIP PARSER] Model ${modelName} with schema failed:`, err.message || err);
+        lastError = err;
       }
+    }
+
+    // 2. If structured schema failed (e.g. schema validation limitations or unsupported config),
+    // fallback to normal generation using raw JSON response requests
+    if (!response) {
+      console.warn("[SLIP PARSER] All schema-based models failed. Initiating fallback without schema...");
+      const fallbackConfig = {
+        temperature: 0.1,
+        responseMimeType: "application/json",
+      };
+
+      for (const modelName of modelsToTry) {
+        try {
+          console.log(`[SLIP PARSER] Attempting with model: ${modelName} (raw JSON fallback)...`);
+          response = await ai.models.generateContent({
+            model: modelName,
+            contents: { parts: [imagePart, textPart] },
+            config: fallbackConfig,
+          });
+          succeededModel = modelName;
+          break; // Successfully got response
+        } catch (err: any) {
+          console.warn(`[SLIP PARSER] Model ${modelName} without schema failed:`, err.message || err);
+          lastError = err;
+        }
+      }
+    }
+
+    if (!response) {
+      throw new Error(`All Gemini parsing models failed. Last error: ${lastError?.message || lastError}`);
     }
 
     const resultText = response.text;
     if (!resultText) {
-      throw new Error("No response text from Gemini model.");
+      throw new Error("Received an empty response text from Gemini.");
     }
 
-    const parsedData = JSON.parse(resultText.trim());
-    return res.json({ success: true, data: parsedData });
+    console.log(`[SLIP PARSER] Successfully parsed slip using model: ${succeededModel}`);
+    console.log("[SLIP PARSER] Raw model output:", resultText);
+
+    // 3. Robust JSON Extraction helper to clean markdown backticks or messy text
+    const parseStructuredData = (text: string): any => {
+      let cleaned = text.trim();
+      
+      // Remove Markdown block code formatting (```json ... ```)
+      const jsonBlockRegex = /```(?:json)?\s*([\s\S]*?)\s*```/i;
+      const match = cleaned.match(jsonBlockRegex);
+      if (match && match[1]) {
+        cleaned = match[1].trim();
+      }
+
+      // Snip text to only contain { ... } in case the model added extra commentary
+      const startIdx = cleaned.indexOf("{");
+      const endIdx = cleaned.lastIndexOf("}");
+      if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+        cleaned = cleaned.substring(startIdx, endIdx + 1);
+      }
+
+      try {
+        return JSON.parse(cleaned);
+      } catch (jsonErr) {
+        console.warn("[SLIP PARSER] JSON.parse failed. Trying manual Regex extraction fallback...");
+        // Extreme Regex manual extraction fallback
+        const senderNameMatch = text.match(/"senderName"\s*:\s*"([^"]+)"/i);
+        const amountMatch = text.match(/"amount"\s*:\s*([0-9.]+)/i);
+        const dateMatch = text.match(/"date"\s*:\s*"([^"]+)"/i);
+        const timeMatch = text.match(/"time"\s*:\s*"([^"]+)"/i);
+        const bankMatch = text.match(/"bank"\s*:\s*"([^"]+)"/i);
+        const isSuccessMatch = text.match(/"isSuccess"\s*:\s*(true|false)/i);
+
+        if (senderNameMatch || amountMatch) {
+          return {
+            senderName: senderNameMatch ? senderNameMatch[1] : "",
+            amount: amountMatch ? parseFloat(amountMatch[1]) : 0,
+            date: dateMatch ? dateMatch[1] : "",
+            time: timeMatch ? timeMatch[1] : "",
+            bank: bankMatch ? bankMatch[1] : "",
+            isSuccess: isSuccessMatch ? isSuccessMatch[1].toLowerCase() === "true" : true,
+          };
+        }
+        throw jsonErr;
+      }
+    };
+
+    const rawParsed = parseStructuredData(resultText);
+
+    // 4. Strict Server-Side Data Normalization and Sanitization
+    const normalizeParsedData = (data: any): any => {
+      let senderName = data.senderName || "";
+      // Strip any accidental Thai prefixes that escaped the prompt instructions
+      senderName = senderName.replace(/^(นาย|นาง|นางสาว|น\.ส\.|ด\.ช\.|ด\.ญ\.|mr\.|ms\.|mrs\.)\s*/i, "").trim();
+
+      let amount = parseFloat(data.amount);
+      if (isNaN(amount)) amount = 0;
+
+      let date = (data.date || "").trim();
+      // If date includes Thai BE year (2500 - 2600), convert to Western Gregorian year (AD)
+      const yearMatch = date.match(/^(\d{4})/);
+      if (yearMatch) {
+        let year = parseInt(yearMatch[1]);
+        if (year >= 2500 && year <= 2600) {
+          year = year - 543;
+          date = date.replace(/^(\d{4})/, year.toString());
+        }
+      }
+
+      // Check date format validation (YYYY-MM-DD)
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        date = new Date().toISOString().split("T")[0]; // Safe default to today
+      }
+
+      let time = (data.time || "").trim();
+      // Ensure time contains only HH:MM (strip seconds or AM/PM/น.)
+      time = time.replace(/\s*(น\.|am|pm)\s*/i, "").trim();
+      if (time.length > 5) {
+        time = time.slice(0, 5);
+      }
+      if (!/^\d{2}:\d{2}$/.test(time)) {
+        time = new Date().toTimeString().slice(0, 5); // Safe default to current time
+      }
+
+      return {
+        senderName: senderName || "ไม่ระบุชื่อผู้โอน",
+        amount,
+        date,
+        time,
+        bank: data.bank || "ธนาคาร",
+        isSuccess: data.isSuccess !== false, // default to true unless explicitly false
+      };
+    };
+
+    const finalData = normalizeParsedData(rawParsed);
+    console.log("[SLIP PARSER] Normalized and Sanitized result:", finalData);
+
+    return res.json({ success: true, data: finalData });
   } catch (error: any) {
     console.error("Error parsing slip with Gemini:", error);
     return res.status(500).json({
