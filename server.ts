@@ -134,7 +134,7 @@ app.post("/api/parse-slip", async (req, res) => {
         const formData = new FormData();
         formData.append("files", blob, "slip.jpg");
 
-        const slipOkResponse = await fetch("https://api.slipok.com/api/line/apikey", {
+        const slipOkResponse = await fetch("https://api.slipok.com/api/apikey", {
           method: "POST",
           headers: {
             "x-log-key": process.env.SLIPOK_API_KEY || "",
@@ -317,10 +317,9 @@ Follow these strict rules to ensure absolute accuracy:
     let succeededModel = "";
 
     const modelsToTry = [
-      "gemini-2.5-flash",
+      "gemini-3.5-flash",
       "gemini-3.1-flash-lite",
-      "gemini-flash-latest",
-      "gemini-3.5-flash"
+      "gemini-flash-latest"
     ];
 
     // 1. Try with responseSchema (structured output) first across all models
