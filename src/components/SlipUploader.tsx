@@ -36,6 +36,7 @@ export default function SlipUploader({ members, onUploadSuccess, activeGroupId }
     bank: string;
     date: string;
     time: string;
+    method?: string;
   } | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -105,7 +106,7 @@ export default function SlipUploader({ members, onUploadSuccess, activeGroupId }
       setLoadingStep("กำลังอัปโหลดและเตรียมไฟล์สลิป...");
       const base64 = await convertToBase64(file);
 
-      setLoadingStep("ส่งข้อมูลสลิปไปวิเคราะห์ด้วยระบบ Gemini AI...");
+      setLoadingStep("กำลังตรวจสอบสลิปด้วยระบบ SlipOK / Slip2Go / Gemini AI...");
       const response = await fetch("/api/parse-slip", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -235,6 +236,7 @@ export default function SlipUploader({ members, onUploadSuccess, activeGroupId }
       bank: parsedResult.bank || "ธนาคาร",
       date: parsedResult.date,
       time: parsedResult.time,
+      method: parsedResult.method || "Gemini AI",
     });
 
     // Automatically reset / dismiss after 6 seconds
@@ -274,7 +276,7 @@ export default function SlipUploader({ members, onUploadSuccess, activeGroupId }
           >
             <Loader2 className="w-10 h-10 text-emerald-400 animate-spin mb-4" />
             <p className="text-sm text-slate-200 font-medium font-sans animate-pulse">{loadingStep}</p>
-            <p className="text-xs text-slate-500 font-mono mt-1">โมเดลประมวลผล: gemini-3.5-flash</p>
+            <p className="text-xs text-slate-500 font-sans mt-1">ระบบวิเคราะห์: SlipOK / Slip2Go (สำรอง Gemini AI)</p>
           </motion.div>
         )}
 
@@ -412,6 +414,10 @@ export default function SlipUploader({ members, onUploadSuccess, activeGroupId }
                 <span className="text-slate-400">วันเวลาที่โอน:</span>
                 <span className="text-slate-400 font-mono text-[10px]">{successInfo.date} {successInfo.time}</span>
               </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-slate-400">ระบบที่สแกน:</span>
+                <span className="text-emerald-400/95 font-medium">{successInfo.method || "Gemini AI"}</span>
+              </div>
               {successInfo.isNew && (
                 <div className="text-[10px] text-amber-400 font-sans pt-1.5 border-t border-slate-800/80 mt-1.5 flex items-center gap-1">
                   ✨ ระบบสร้างและจำชื่อเล่นใหม่: <strong className="text-slate-100">{successInfo.nickname}</strong>
@@ -440,8 +446,9 @@ export default function SlipUploader({ members, onUploadSuccess, activeGroupId }
             id="parsed-confirm-panel"
           >
             <div className="flex justify-between items-center pb-3 border-b border-slate-800 mb-4">
-              <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">
-                AI สแกนข้อมูลสำเร็จเรียบร้อย
+              <span className="text-xs font-mono font-bold text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20 flex items-center gap-1.5">
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+                สแกนสำเร็จด้วย {parsedResult.method || "Gemini AI"}
               </span>
               <button
                 type="button"

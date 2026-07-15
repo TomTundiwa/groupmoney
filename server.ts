@@ -72,6 +72,152 @@ app.post("/api/parse-slip", async (req, res) => {
       }
     }
 
+    // Helper function to map Thai bank codes to readable names
+    const mapBankCode = (code: string): string => {
+      if (!code) return "ธนาคาร";
+      const normalized = code.trim().replace(/^0+/, ""); // strip leading zeros
+      const bankMap: { [key: string]: string } = {
+        "2": "BBL",
+        "4": "KBank",
+        "6": "KTB",
+        "11": "TTB",
+        "14": "SCB",
+        "25": "Krungsri",
+        "30": "GSB",
+        "24": "UOB",
+        "34": "BAAC",
+        "kbank": "KBank",
+        "scb": "SCB",
+        "ktb": "KTB",
+        "bbl": "BBL",
+        "krungsri": "Krungsri",
+        "ttb": "TTB",
+        "gsb": "GSB",
+      };
+      return bankMap[normalized] || bankMap[normalized.toLowerCase()] || code;
+    };
+
+    // Helper to parse SlipOK/Slip2Go date format
+    const parseTransDate = (dateStr: string): string => {
+      if (!dateStr) return new Date().toISOString().split("T")[0];
+      const cleaned = dateStr.replace(/[^0-9]/g, ""); // e.g. "20240715"
+      if (cleaned.length === 8) {
+        return `${cleaned.substring(0, 4)}-${cleaned.substring(4, 6)}-${cleaned.substring(6, 8)}`;
+      }
+      if (dateStr.includes("-")) {
+        return dateStr; // e.g. "2024-07-15"
+      }
+      return new Date().toISOString().split("T")[0];
+    };
+
+    // Helper to parse SlipOK/Slip2Go time format
+    const parseTransTime = (timeStr: string): string => {
+      if (!timeStr) return new Date().toTimeString().slice(0, 5);
+      const cleaned = timeStr.replace(/[^0-9]/g, ""); // e.g. "142531"
+      if (cleaned.length >= 4) {
+        return `${cleaned.substring(0, 2)}:${cleaned.substring(2, 4)}`;
+      }
+      if (timeStr.includes(":")) {
+        return timeStr.slice(0, 5); // e.g. "14:25"
+      }
+      return new Date().toTimeString().slice(0, 5);
+    };
+
+    const hasSlipOk = !!process.env.SLIPOK_API_KEY;
+    const hasSlip2Go = !!process.env.SLIP2GO_API_KEY;
+
+    if (hasSlipOk) {
+      try {
+        console.log("[SLIP PARSER] SLIPOK_API_KEY detected. Making SlipOK API call...");
+        const buffer = Buffer.from(finalBase64Data, "base64");
+        const blob = new Blob([buffer], { type: finalMimeType });
+        const formData = new FormData();
+        formData.append("files", blob, "slip.jpg");
+
+        const slipOkResponse = await fetch("https://api.slipok.com/api/line/apikey", {
+          method: "POST",
+          headers: {
+            "x-log-key": process.env.SLIPOK_API_KEY || "",
+          },
+          body: formData,
+        });
+
+        if (slipOkResponse.ok) {
+          const resJson: any = await slipOkResponse.json();
+          console.log("[SLIP PARSER] SlipOK parsed successfully:", JSON.stringify(resJson));
+          if (resJson && resJson.success && resJson.data) {
+            const data = resJson.data;
+            const rawSenderName = data.sender?.displayName || data.sender?.name || "";
+            const senderName = rawSenderName.replace(/^(นาย|นาง|นางสาว|น\.ส\.|ด\.ช\.|ด\.ญ\.|mr\.|ms\.|mrs\.)\s*/i, "").trim();
+
+            const parsedResult = {
+              senderName: senderName || "ไม่ระบุชื่อผู้โอน",
+              amount: parseFloat(data.amount) || 0,
+              date: parseTransDate(data.transDate),
+              time: parseTransTime(data.transTime),
+              bank: mapBankCode(data.sendingBank),
+              isSuccess: data.success !== false,
+              method: "SlipOK API"
+            };
+            console.log("[SLIP PARSER] Returning SlipOK result:", parsedResult);
+            return res.json({ success: true, data: parsedResult });
+          } else {
+            console.warn("[SLIP PARSER] SlipOK response success was false:", resJson);
+          }
+        } else {
+          console.warn("[SLIP PARSER] SlipOK API returned error status:", slipOkResponse.status);
+        }
+      } catch (err: any) {
+        console.error("[SLIP PARSER] SlipOK integration failed, falling back to Gemini:", err.message || err);
+      }
+    }
+
+    if (hasSlip2Go) {
+      try {
+        console.log("[SLIP PARSER] SLIP2GO_API_KEY detected. Making Slip2Go API call...");
+        const buffer = Buffer.from(finalBase64Data, "base64");
+        const blob = new Blob([buffer], { type: finalMimeType });
+        const formData = new FormData();
+        formData.append("files", blob, "slip.jpg");
+
+        const slip2goResponse = await fetch("https://api.slip2go.com/api/v1/slips", {
+          method: "POST",
+          headers: {
+            "x-api-key": process.env.SLIP2GO_API_KEY || "",
+          },
+          body: formData,
+        });
+
+        if (slip2goResponse.ok) {
+          const resJson: any = await slip2goResponse.json();
+          console.log("[SLIP PARSER] Slip2Go parsed successfully:", JSON.stringify(resJson));
+          if (resJson && resJson.success && resJson.data) {
+            const data = resJson.data;
+            const rawSenderName = data.sender?.displayName || data.sender?.name || "";
+            const senderName = rawSenderName.replace(/^(นาย|นาง|นางสาว|น\.ส\.|ด\.ช\.|ด\.ญ\.|mr\.|ms\.|mrs\.)\s*/i, "").trim();
+
+            const parsedResult = {
+              senderName: senderName || "ไม่ระบุชื่อผู้โอน",
+              amount: parseFloat(data.amount) || 0,
+              date: parseTransDate(data.transDate),
+              time: parseTransTime(data.transTime),
+              bank: mapBankCode(data.sendingBank),
+              isSuccess: data.success !== false,
+              method: "Slip2Go API"
+            };
+            console.log("[SLIP PARSER] Returning Slip2Go result:", parsedResult);
+            return res.json({ success: true, data: parsedResult });
+          } else {
+            console.warn("[SLIP PARSER] Slip2Go response success was false:", resJson);
+          }
+        } else {
+          console.warn("[SLIP PARSER] Slip2Go API returned error status:", slip2goResponse.status);
+        }
+      } catch (err: any) {
+        console.error("[SLIP PARSER] Slip2Go integration failed, falling back to Gemini:", err.message || err);
+      }
+    }
+
     // Structured prompt for bank slip details extraction with extreme accuracy rules
     const prompt = `Analyze this Thai bank transfer slip image and accurately extract the transaction details.
 
@@ -324,9 +470,13 @@ Follow these strict rules to ensure absolute accuracy:
     };
 
     const finalData = normalizeParsedData(rawParsed);
-    console.log("[SLIP PARSER] Normalized and Sanitized result:", finalData);
+    const resultWithMethod = {
+      ...finalData,
+      method: "Gemini AI"
+    };
+    console.log("[SLIP PARSER] Normalized and Sanitized result:", resultWithMethod);
 
-    return res.json({ success: true, data: finalData });
+    return res.json({ success: true, data: resultWithMethod });
   } catch (error: any) {
     console.error("Error parsing slip with Gemini:", error);
     return res.status(500).json({

@@ -36,4 +36,5 @@ export interface ParsedSlipResult {
   time: string;
   bank: string;
   isSuccess: boolean;
+  method?: string;
 }
