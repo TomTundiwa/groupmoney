@@ -1,12 +1,14 @@
 import React, { useState } from "react";
 import { Member, Transaction } from "../types";
-import { Users, Plus, Search, ChevronRight, UserCheck, AlertTriangle, Sparkles, Trash2, Lock, Edit2, Check, X, Calendar, Clock, Landmark, CreditCard, Info, Award } from "lucide-react";
+import { Users, Plus, Search, ChevronRight, UserCheck, AlertTriangle, Sparkles, Trash2, Lock, Edit2, Check, X, Calendar, Clock, Landmark, CreditCard, Info, Award, ArrowRightLeft, Coins, History } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import { calculateMemberCarryover, MemberCarryoverResult } from "../lib/carryover";
 
 interface MemberManagerProps {
   members: Member[];
   transactions: Transaction[];
   targetAmountPerMember: number;
+  groupCreatedAt: string;
   onAddMember: (name: string, nickname: string) => void;
   onDeleteMember: (id: string) => void;
   onEditMember?: (id: string, name: string, nickname: string, newTotalPaid?: number) => void;
@@ -18,6 +20,7 @@ export default function MemberManager({
   members,
   transactions,
   targetAmountPerMember,
+  groupCreatedAt,
   onAddMember,
   onDeleteMember,
   onEditMember,
@@ -73,19 +76,23 @@ export default function MemberManager({
     setShowAddForm(false);
   };
 
-  // Compute payment statistics for each member
+  // Compute payment statistics for each member with weekly rollover/carryover
   const memberListWithStats = members.map((member) => {
+    const carryoverResult = calculateMemberCarryover(
+      member.id,
+      transactions,
+      targetAmountPerMember,
+      groupCreatedAt
+    );
     const memberTxs = transactions.filter((t) => t.memberId === member.id);
-    const totalPaid = memberTxs.reduce((sum, t) => sum + t.amount, 0);
-    const isPaidFully = totalPaid >= targetAmountPerMember;
-    const isPartial = totalPaid > 0 && totalPaid < targetAmountPerMember;
 
     return {
       ...member,
-      totalPaid,
-      isPaidFully,
-      isPartial,
+      totalPaid: carryoverResult.totalPaidAllTime,
+      isPaidFully: carryoverResult.currentWeekStatus.isPaidFully,
+      isPartial: carryoverResult.currentWeekStatus.available > 0 && !carryoverResult.currentWeekStatus.isPaidFully,
       txCount: memberTxs.length,
+      carryover: carryoverResult,
     };
   });
 
@@ -276,21 +283,35 @@ export default function MemberManager({
                         <p className="text-[10px] text-slate-500 truncate">({m.name})</p>
                       )}
                     </div>
-                    <p className="text-[10px] font-mono text-slate-400 mt-0.5">
-                      โอนแล้ว: ฿{m.totalPaid.toLocaleString("th-TH")} / ฿{targetAmountPerMember.toLocaleString("th-TH")}
-                    </p>
+                    <div className="flex flex-col gap-0.5 mt-0.5">
+                      <p className="text-[10px] font-mono text-slate-400">
+                        สัปดาห์นี้: ฿{m.carryover.currentWeekStatus.available.toLocaleString("th-TH")} / ฿{targetAmountPerMember.toLocaleString("th-TH")}
+                      </p>
+                      {m.carryover.currentWeekStatus.carriedIn > 0 && (
+                        <span className="text-[9px] font-sans text-emerald-400 bg-emerald-500/5 border border-emerald-500/10 px-1.5 py-0.2 rounded w-fit">
+                          💰 ทบมาจากสัปดาห์ก่อน ฿{m.carryover.currentWeekStatus.carriedIn.toLocaleString("th-TH")}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
 
                 {/* Status Pill and Actions */}
                 <div className="flex items-center gap-2 flex-shrink-0">
                   {m.isPaidFully ? (
-                    <span className="text-[9px] font-sans font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full flex items-center gap-0.5">
-                      <UserCheck className="w-3 h-3" /> ครบถ้วน
-                    </span>
+                    <div className="flex flex-col items-end gap-0.5">
+                      <span className="text-[9px] font-sans font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full flex items-center gap-0.5">
+                        <UserCheck className="w-3 h-3" /> ครบถ้วน
+                      </span>
+                      {m.carryover.currentWeekStatus.carriedOut > 0 && (
+                        <span className="text-[8px] text-emerald-300 font-mono">
+                          ทบถัดไป ฿{m.carryover.currentWeekStatus.carriedOut.toLocaleString("th-TH")}
+                        </span>
+                      )}
+                    </div>
                   ) : m.isPartial ? (
                     <span className="text-[9px] font-sans font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-full flex items-center gap-0.5">
-                      <AlertTriangle className="w-3 h-3" /> ค้าง ฿{targetAmountPerMember - m.totalPaid}
+                      <AlertTriangle className="w-3 h-3" /> ค้าง ฿{m.carryover.currentWeekStatus.deficit.toLocaleString("th-TH")}
                     </span>
                   ) : (
                     <span className="text-[9px] font-sans font-bold text-slate-500 bg-slate-800 border border-slate-700 px-2 py-0.5 rounded-full">
@@ -390,9 +411,9 @@ export default function MemberManager({
                 {/* Visual Progress Status */}
                 <div className="bg-slate-950/40 border border-slate-800/80 rounded-2xl p-4 space-y-3">
                   <div className="flex items-center justify-between text-xs">
-                    <span className="text-slate-400 font-sans">ความคืบหน้าการชำระเงิน</span>
+                    <span className="text-slate-400 font-sans">ความคืบหน้าการชำระเงินสัปดาห์นี้</span>
                     <span className={`font-bold font-mono ${selectedMember.isPaidFully ? "text-emerald-400" : "text-amber-400"}`}>
-                      {((selectedMember.totalPaid / targetAmountPerMember) * 100).toFixed(0)}%
+                      {Math.min(100, Math.round((selectedMember.carryover.currentWeekStatus.available / targetAmountPerMember) * 100))}%
                     </span>
                   </div>
                   <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
@@ -400,40 +421,113 @@ export default function MemberManager({
                       className={`h-full rounded-full transition-all duration-500 ${
                         selectedMember.isPaidFully ? "bg-emerald-500" : "bg-amber-500"
                       }`}
-                      style={{ width: `${Math.min(100, (selectedMember.totalPaid / targetAmountPerMember) * 100)}%` }}
+                      style={{ width: `${Math.min(100, (selectedMember.carryover.currentWeekStatus.available / targetAmountPerMember) * 100)}%` }}
                     />
                   </div>
 
                   <div className="grid grid-cols-3 gap-2 pt-2 text-center">
                     <div className="bg-slate-900/50 p-2.5 rounded-xl border border-slate-800/50">
-                      <p className="text-[10px] text-slate-400">เป้าหมายก๊วน</p>
+                      <p className="text-[10px] text-slate-400">โอนจริงสัปดาห์นี้</p>
                       <p className="text-xs font-bold font-mono text-slate-200 mt-0.5">
-                        ฿{targetAmountPerMember.toLocaleString("th-TH")}
+                        ฿{selectedMember.carryover.currentWeekStatus.rawPaidThisWeek.toLocaleString("th-TH")}
                       </p>
                     </div>
                     <div className="bg-slate-900/50 p-2.5 rounded-xl border border-slate-800/50">
-                      <p className="text-[10px] text-slate-400">จ่ายแล้วทั้งหมด</p>
+                      <p className="text-[10px] text-slate-400">เงินทบสะสมมา</p>
                       <p className="text-xs font-bold font-mono text-emerald-400 mt-0.5">
-                        ฿{selectedMember.totalPaid.toLocaleString("th-TH")}
+                        ฿{selectedMember.carryover.currentWeekStatus.carriedIn.toLocaleString("th-TH")}
                       </p>
                     </div>
                     <div className="bg-slate-900/50 p-2.5 rounded-xl border border-slate-800/50">
-                      <p className="text-[10px] text-slate-400">ยอดเงินค้างชำระ</p>
-                      <p className={`text-xs font-bold font-mono mt-0.5 ${selectedMember.isPaidFully ? "text-slate-500" : "text-rose-400"}`}>
-                        ฿{Math.max(0, targetAmountPerMember - selectedMember.totalPaid).toLocaleString("th-TH")}
+                      <p className="text-[10px] text-slate-400">ยอดรวมสัปดาห์นี้</p>
+                      <p className="text-xs font-bold font-mono text-emerald-400 mt-0.5">
+                        ฿{selectedMember.carryover.currentWeekStatus.available.toLocaleString("th-TH")}
                       </p>
                     </div>
                   </div>
 
                   {selectedMember.isPaidFully ? (
-                    <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs py-2 px-3 rounded-xl flex items-center gap-1.5 justify-center font-semibold">
-                      <Sparkles className="w-4 h-4 animate-spin-slow" /> จ่ายครบถ้วนแล้ว ขอบคุณน้า! 🎉
+                    <div className="flex flex-col gap-1.5">
+                      <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs py-2 px-3 rounded-xl flex items-center gap-1.5 justify-center font-semibold">
+                        <Sparkles className="w-4 h-4 animate-spin-slow" /> จ่ายครบถ้วนสัปดาห์นี้แล้ว ขอบคุณน้า! 🎉
+                      </div>
+                      {selectedMember.carryover.currentWeekStatus.carriedOut > 0 && (
+                        <div className="bg-blue-500/10 border border-blue-500/20 text-blue-300 text-[11px] py-1.5 px-3 rounded-xl flex items-center gap-1.5 justify-center">
+                          <Coins className="w-4 h-4 text-amber-400" />
+                          <span>มียอดเงินโอนเกินสะสมทบไปสัปดาห์หน้า: <strong className="text-emerald-400">฿{selectedMember.carryover.currentWeekStatus.carriedOut.toLocaleString("th-TH")}</strong></span>
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div className="bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs py-2 px-3 rounded-xl flex items-center gap-1.5 justify-center font-medium">
-                      <AlertTriangle className="w-4 h-4" /> ยังค้างชำระอีก ฿{(targetAmountPerMember - selectedMember.totalPaid).toLocaleString("th-TH")}
+                      <AlertTriangle className="w-4 h-4" /> ยังค้างสัปดาห์นี้อีก ฿{(selectedMember.carryover.currentWeekStatus.deficit).toLocaleString("th-TH")} (เป้าสัปดาห์ละ ฿{targetAmountPerMember.toLocaleString("th-TH")})
                     </div>
                   )}
+                </div>
+
+                {/* Rollover / Carryover History Timeline */}
+                <div className="bg-slate-950/20 border border-slate-800 rounded-2xl p-4 space-y-3">
+                  <h4 className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                    <History className="w-4 h-4 text-emerald-400" />
+                    ประวัติการทบยอดเงินรายสัปดาห์ ({selectedMember.carryover.weeksHistory.length})
+                  </h4>
+
+                  <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                    {selectedMember.carryover.weeksHistory.map((week, idx) => {
+                      const isLast = idx === selectedMember.carryover.weeksHistory.length - 1;
+                      return (
+                        <div key={idx} className="bg-slate-900/60 border border-slate-850 p-3 rounded-xl text-xs space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="font-semibold text-slate-200 flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                              สัปดาห์ที่ {idx + 1}: {week.label}
+                              {isLast && (
+                                <span className="text-[9px] font-bold text-blue-400 bg-blue-500/10 border border-blue-500/20 px-1 py-0.2 rounded">สัปดาห์ปัจจุบัน</span>
+                              )}
+                            </span>
+                            {week.isPaidFully ? (
+                              <span className="text-[9px] font-sans font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/25 px-2 py-0.5 rounded-full">
+                                ครบถ้วน
+                              </span>
+                            ) : (
+                              <span className="text-[9px] font-sans font-bold text-amber-400 bg-amber-500/10 border border-amber-500/25 px-2 py-0.5 rounded-full">
+                                ค้าง ฿{week.deficit}
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11px] text-slate-400 border-t border-slate-800/40 pt-1.5 font-sans">
+                            <div className="flex items-center justify-between">
+                              <span>ยอดโอนจริงสัปดาห์นี้:</span>
+                              <span className="font-mono text-slate-200">฿{week.rawPaid}</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span>ยกมาจากสัปดาห์ก่อน:</span>
+                              <span className="font-mono text-emerald-400">+฿{week.carriedIn}</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span>เป้าหมายประจำสัปดาห์:</span>
+                              <span className="font-mono text-slate-300">฿{week.target}</span>
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span>รวมยอดที่มีในระบบ:</span>
+                              <span className="font-mono text-slate-200">฿{week.available}</span>
+                            </div>
+                          </div>
+
+                          {week.carriedOut > 0 && (
+                            <div className="bg-emerald-500/5 border border-emerald-500/10 text-emerald-400 text-[10px] py-1 px-2 rounded-lg flex items-center justify-between">
+                              <span className="flex items-center gap-1">
+                                <ArrowRightLeft className="w-3 h-3 text-emerald-400" />
+                                <span>ยอดเงินส่วนเกินโอนสะสมทบไป:</span>
+                              </span>
+                              <strong className="font-mono">฿{week.carriedOut}</strong>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
 
                 {/* Slip AI Auto Match Details */}

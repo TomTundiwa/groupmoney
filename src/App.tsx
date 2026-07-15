@@ -782,6 +782,7 @@ export default function App() {
                   members={activeMembers}
                   transactions={activeTransactions}
                   targetAmountPerMember={activeGroup.targetAmountPerMember}
+                  groupCreatedAt={activeGroup.createdAt}
                   onAddMember={handleAddMember}
                   onDeleteMember={handleDeleteMember}
                   onEditMember={handleEditMember}
