@@ -131,7 +131,7 @@ app.post("/api/parse-slip", async (req, res) => {
         const buffer = Buffer.from(finalBase64Data, "base64");
         const blob = new Blob([buffer], { type: finalMimeType });
         const formData = new FormData();
-        formData.append("flies", blob, "slip.jpg");
+        formData.append("files", blob, "slip.jpg");
 
         const slipOkResponse = await fetch("https://api.slipok.com/api/line/apikey/71624", {
           method: "POST",
