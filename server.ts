@@ -123,21 +123,20 @@ app.post("/api/parse-slip", async (req, res) => {
       return new Date().toTimeString().slice(0, 5);
     };
 
-    const hasSlipOk = !!process.env.SLIPOK_API_KEY;
-    const hasSlip2Go = !!process.env.SLIP2GO_API_KEY;
+    const hasSlipOk = !!(process.env.SLIPOK_API_KEY || "SLIPOK9AS7RET");
 
     if (hasSlipOk) {
       try {
-        console.log("[SLIP PARSER] SLIPOK_API_KEY detected. Making SlipOK API call...");
+        console.log("[SLIP PARSER] Making SlipOK API call...");
         const buffer = Buffer.from(finalBase64Data, "base64");
         const blob = new Blob([buffer], { type: finalMimeType });
         const formData = new FormData();
-        formData.append("files", blob, "slip.jpg");
+        formData.append("flies", blob, "slip.jpg");
 
-        const slipOkResponse = await fetch("https://api.slipok.com/api/apikey", {
+        const slipOkResponse = await fetch("https://api.slipok.com/api/line/apikey/71624", {
           method: "POST",
           headers: {
-            "x-log-key": process.env.SLIPOK_API_KEY || "",
+            "x-authorization": process.env.SLIPOK_API_KEY || "SLIPOK9AS7RET",
           },
           body: formData,
         });
@@ -169,52 +168,6 @@ app.post("/api/parse-slip", async (req, res) => {
         }
       } catch (err: any) {
         console.error("[SLIP PARSER] SlipOK integration failed, falling back to Gemini:", err.message || err);
-      }
-    }
-
-    if (hasSlip2Go) {
-      try {
-        console.log("[SLIP PARSER] SLIP2GO_API_KEY detected. Making Slip2Go API call...");
-        const buffer = Buffer.from(finalBase64Data, "base64");
-        const blob = new Blob([buffer], { type: finalMimeType });
-        const formData = new FormData();
-        formData.append("files", blob, "slip.jpg");
-
-        const slip2goResponse = await fetch("https://api.slip2go.com/api/v1/slips", {
-          method: "POST",
-          headers: {
-            "x-api-key": process.env.SLIP2GO_API_KEY || "",
-          },
-          body: formData,
-        });
-
-        if (slip2goResponse.ok) {
-          const resJson: any = await slip2goResponse.json();
-          console.log("[SLIP PARSER] Slip2Go parsed successfully:", JSON.stringify(resJson));
-          if (resJson && resJson.success && resJson.data) {
-            const data = resJson.data;
-            const rawSenderName = data.sender?.displayName || data.sender?.name || "";
-            const senderName = rawSenderName.replace(/^(นาย|นาง|นางสาว|น\.ส\.|ด\.ช\.|ด\.ญ\.|mr\.|ms\.|mrs\.)\s*/i, "").trim();
-
-            const parsedResult = {
-              senderName: senderName || "ไม่ระบุชื่อผู้โอน",
-              amount: parseFloat(data.amount) || 0,
-              date: parseTransDate(data.transDate),
-              time: parseTransTime(data.transTime),
-              bank: mapBankCode(data.sendingBank),
-              isSuccess: data.success !== false,
-              method: "Slip2Go API"
-            };
-            console.log("[SLIP PARSER] Returning Slip2Go result:", parsedResult);
-            return res.json({ success: true, data: parsedResult });
-          } else {
-            console.warn("[SLIP PARSER] Slip2Go response success was false:", resJson);
-          }
-        } else {
-          console.warn("[SLIP PARSER] Slip2Go API returned error status:", slip2goResponse.status);
-        }
-      } catch (err: any) {
-        console.error("[SLIP PARSER] Slip2Go integration failed, falling back to Gemini:", err.message || err);
       }
     }
 

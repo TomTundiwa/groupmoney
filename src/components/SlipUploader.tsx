@@ -116,7 +116,7 @@ export default function SlipUploader({
       setLoadingStep("กำลังอัปโหลดและเตรียมไฟล์สลิป...");
       const base64 = await convertToBase64(file);
 
-      setLoadingStep("กำลังตรวจสอบสลิปด้วยระบบ SlipOK / Slip2Go / Gemini AI...");
+      setLoadingStep("กำลังตรวจสอบสลิปด้วยระบบ SlipOK / Gemini AI...");
       const response = await fetch("/api/parse-slip", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -306,7 +306,7 @@ export default function SlipUploader({
           >
             <Loader2 className="w-10 h-10 text-emerald-400 animate-spin mb-4" />
             <p className="text-sm text-slate-200 font-medium font-sans animate-pulse">{loadingStep}</p>
-            <p className="text-xs text-slate-500 font-sans mt-1">ระบบวิเคราะห์: SlipOK / Slip2Go (สำรอง Gemini AI)</p>
+            <p className="text-xs text-slate-500 font-sans mt-1">ระบบวิเคราะห์: SlipOK (สำรอง Gemini AI)</p>
           </motion.div>
         )}
 
