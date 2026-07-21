@@ -137,7 +137,7 @@ export function calculateMemberCarryover(
       deficit = 0;
     } else {
       isPaidFully = false;
-      carriedOut = 0;
+      carriedOut = available - targetAmount; // Carry over the negative deficit
       deficit = targetAmount - available;
     }
 

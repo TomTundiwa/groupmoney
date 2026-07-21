@@ -376,8 +376,13 @@ export default function MemberManager({
                         สัปดาห์นี้: ฿{m.carryover.currentWeekStatus.available.toLocaleString("th-TH")} / ฿{targetAmountPerMember.toLocaleString("th-TH")}
                       </p>
                       {m.carryover.currentWeekStatus.carriedIn > 0 && (
-                        <span className="text-[9px] font-sans text-emerald-400 bg-emerald-500/5 border border-emerald-500/10 px-1.5 py-0.2 rounded w-fit">
+                        <span className="text-[9px] font-sans text-emerald-400 bg-emerald-500/5 border border-emerald-500/10 px-1.5 py-0.5 rounded w-fit">
                           💰 ทบมาจากสัปดาห์ก่อน ฿{m.carryover.currentWeekStatus.carriedIn.toLocaleString("th-TH")}
+                        </span>
+                      )}
+                      {m.carryover.currentWeekStatus.carriedIn < 0 && (
+                        <span className="text-[9px] font-sans text-rose-400 bg-rose-500/5 border border-rose-500/10 px-1.5 py-0.5 rounded w-fit flex items-center gap-1">
+                          ⚠️ ค้างทบมาจากสัปดาห์ก่อน ฿{Math.abs(m.carryover.currentWeekStatus.carriedIn).toLocaleString("th-TH")}
                         </span>
                       )}
                     </div>
@@ -501,7 +506,7 @@ export default function MemberManager({
                   <div className="flex items-center justify-between text-xs">
                     <span className="text-slate-400 font-sans">ความคืบหน้าการชำระเงินสัปดาห์นี้</span>
                     <span className={`font-bold font-mono ${selectedMember.isPaidFully ? "text-emerald-400" : "text-amber-400"}`}>
-                      {Math.min(100, Math.round((selectedMember.carryover.currentWeekStatus.available / targetAmountPerMember) * 100))}%
+                      {Math.max(0, Math.min(100, Math.round((selectedMember.carryover.currentWeekStatus.available / targetAmountPerMember) * 100)))}%
                     </span>
                   </div>
                   <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
@@ -509,7 +514,7 @@ export default function MemberManager({
                       className={`h-full rounded-full transition-all duration-500 ${
                         selectedMember.isPaidFully ? "bg-emerald-500" : "bg-amber-500"
                       }`}
-                      style={{ width: `${Math.min(100, (selectedMember.carryover.currentWeekStatus.available / targetAmountPerMember) * 100)}%` }}
+                      style={{ width: `${Math.max(0, Math.min(100, (selectedMember.carryover.currentWeekStatus.available / targetAmountPerMember) * 100))}%` }}
                     />
                   </div>
 
@@ -521,14 +526,16 @@ export default function MemberManager({
                       </p>
                     </div>
                     <div className="bg-slate-900/50 p-2.5 rounded-xl border border-slate-800/50">
-                      <p className="text-[10px] text-slate-400">เงินทบสะสมมา</p>
-                      <p className="text-xs font-bold font-mono text-emerald-400 mt-0.5">
-                        ฿{selectedMember.carryover.currentWeekStatus.carriedIn.toLocaleString("th-TH")}
+                      <p className="text-[10px] text-slate-400">
+                        {selectedMember.carryover.currentWeekStatus.carriedIn >= 0 ? "เงินทบสะสมมา" : "ยอดค้างสะสมมา"}
+                      </p>
+                      <p className={`text-xs font-bold font-mono mt-0.5 ${selectedMember.carryover.currentWeekStatus.carriedIn >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                        {selectedMember.carryover.currentWeekStatus.carriedIn >= 0 ? "+" : ""}฿{selectedMember.carryover.currentWeekStatus.carriedIn.toLocaleString("th-TH")}
                       </p>
                     </div>
                     <div className="bg-slate-900/50 p-2.5 rounded-xl border border-slate-800/50">
                       <p className="text-[10px] text-slate-400">ยอดรวมสัปดาห์นี้</p>
-                      <p className="text-xs font-bold font-mono text-emerald-400 mt-0.5">
+                      <p className={`text-xs font-bold font-mono mt-0.5 ${selectedMember.carryover.currentWeekStatus.available >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
                         ฿{selectedMember.carryover.currentWeekStatus.available.toLocaleString("th-TH")}
                       </p>
                     </div>
@@ -579,7 +586,7 @@ export default function MemberManager({
                               </span>
                             ) : (
                               <span className="text-[9px] font-sans font-bold text-amber-400 bg-amber-500/10 border border-amber-500/25 px-2 py-0.5 rounded-full">
-                                ค้าง ฿{week.deficit}
+                                ค้าง ฿{week.deficit.toLocaleString("th-TH")}
                               </span>
                             )}
                           </div>
@@ -590,8 +597,10 @@ export default function MemberManager({
                               <span className="font-mono text-slate-200">฿{week.rawPaid}</span>
                             </div>
                             <div className="flex items-center justify-between">
-                              <span>ยกมาจากสัปดาห์ก่อน:</span>
-                              <span className="font-mono text-emerald-400">+฿{week.carriedIn}</span>
+                              <span>{week.carriedIn >= 0 ? "ยกมาจากสัปดาห์ก่อน:" : "ยอดค้างจากสัปดาห์ก่อน:"}</span>
+                              <span className={`font-mono ${week.carriedIn >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                                {week.carriedIn >= 0 ? `+฿${week.carriedIn.toLocaleString("th-TH")}` : `-฿${Math.abs(week.carriedIn).toLocaleString("th-TH")}`}
+                              </span>
                             </div>
                             <div className="flex items-center justify-between">
                               <span>เป้าหมายประจำสัปดาห์:</span>
@@ -599,7 +608,9 @@ export default function MemberManager({
                             </div>
                             <div className="flex items-center justify-between">
                               <span>รวมยอดที่มีในระบบ:</span>
-                              <span className="font-mono text-slate-200">฿{week.available}</span>
+                              <span className={`font-mono ${week.available >= 0 ? "text-slate-200" : "text-rose-400"}`}>
+                                ฿{week.available.toLocaleString("th-TH")}
+                              </span>
                             </div>
                           </div>
 
