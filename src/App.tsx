@@ -5,7 +5,7 @@ import WeeklyChart from "./components/WeeklyChart";
 import SlipUploader from "./components/SlipUploader";
 import MemberManager from "./components/MemberManager";
 import TransactionHistory from "./components/TransactionHistory";
-import { HelpCircle, Landmark, Sparkles, ShieldAlert, ShieldCheck, Trash2, Key, Share2, Copy, Check, Settings, Crown, Users } from "lucide-react";
+import { HelpCircle, Landmark, Sparkles, ShieldAlert, ShieldCheck, Trash2, Key, Share2, Copy, Check, Settings, Crown, Users, Pencil } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { collection, doc, getDoc, setDoc, deleteDoc, updateDoc, onSnapshot, writeBatch } from "firebase/firestore";
 import { db } from "./lib/firebase";
@@ -57,6 +57,15 @@ export default function App() {
   const [showMainDeleteConfirm, setShowMainDeleteConfirm] = useState(false);
   const [showMainDeleteSuccess, setShowMainDeleteSuccess] = useState(false);
   const [copiedGroupPasscode, setCopiedGroupPasscode] = useState(false);
+
+  // Group edit states for Leader
+  const [showEditGroupModal, setShowEditGroupModal] = useState(false);
+  const [editGroupName, setEditGroupName] = useState("");
+  const [editTargetAmount, setEditTargetAmount] = useState<number>(200);
+  const [editGroupDesc, setEditGroupDesc] = useState("");
+  const [editGroupPasscode, setEditGroupPasscode] = useState("");
+  const [editGroupError, setEditGroupError] = useState("");
+  const [editGroupSuccess, setEditGroupSuccess] = useState(false);
 
   const [unlockedGroupIds, setUnlockedGroupIds] = useState<string[]>(() => {
     try {
@@ -714,6 +723,42 @@ export default function App() {
     }
   };
 
+  const handleEditGroupSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeGroupId) return;
+    if (!editGroupName.trim()) {
+      setEditGroupError("กรุณาระบุชื่อกลุ่ม");
+      return;
+    }
+    if (!editTargetAmount || editTargetAmount <= 0) {
+      setEditGroupError("กรุณาระบุยอดเงินเป้าหมายต่อคนที่ถูกต้อง (มากกว่า 0 บาท)");
+      return;
+    }
+
+    try {
+      const groupRef = doc(db, "groups", activeGroupId);
+      await setDoc(
+        groupRef,
+        {
+          name: editGroupName.trim(),
+          targetAmountPerMember: editTargetAmount,
+          description: editGroupDesc.trim(),
+          passcode: editGroupPasscode.trim(),
+        },
+        { merge: true }
+      );
+      setEditGroupSuccess(true);
+      setEditGroupError("");
+      setTimeout(() => {
+        setShowEditGroupModal(false);
+        setEditGroupSuccess(false);
+      }, 1000);
+    } catch (err) {
+      console.error("Error updating group:", err);
+      setEditGroupError("เกิดข้อผิดพลาดในการบันทึกข้อมูลกลุ่ม");
+    }
+  };
+
   // Filter members and transactions by current active group
   const activeMembers = members.filter((m) => m.groupId === activeGroupId);
   const activeTransactions = transactions.filter((t) => t.groupId === activeGroupId);
@@ -761,6 +806,25 @@ export default function App() {
                     <span className="text-[11px] font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full font-bold">
                       เป้าหมาย: ฿{activeGroup.targetAmountPerMember.toLocaleString("th-TH")} / คน
                     </span>
+                    {isLeader && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditGroupName(activeGroup.name);
+                          setEditTargetAmount(activeGroup.targetAmountPerMember);
+                          setEditGroupDesc(activeGroup.description || "");
+                          setEditGroupPasscode(activeGroup.passcode || "");
+                          setEditGroupError("");
+                          setEditGroupSuccess(false);
+                          setShowEditGroupModal(true);
+                        }}
+                        className="flex items-center gap-1.5 text-[11px] font-sans font-bold text-amber-400 hover:text-amber-300 bg-amber-400/10 hover:bg-amber-400/20 border border-amber-400/25 px-2.5 py-0.5 rounded-full transition cursor-pointer shadow-sm"
+                        title="แก้ไขยอดเงินเป้าหมายและข้อมูลกลุ่มสำหรับหัวหน้ากลุ่ม"
+                      >
+                        <Pencil className="w-3 h-3 text-amber-400" />
+                        <span>แก้ไขยอดเป้าหมาย</span>
+                      </button>
+                    )}
                   </div>
 
                   <p className="text-xs text-slate-400 leading-relaxed max-w-2xl font-sans">
@@ -810,15 +874,33 @@ export default function App() {
                       <p className="text-[11px] text-slate-400 text-left md:text-right leading-relaxed max-w-xs font-sans">
                         คุณคือผู้ดูแลเซิฟเวอร์นี้ สามารถลบและจัดการข้อมูลทั้งหมดภายในกลุ่มนี้ได้อย่างสมบูรณ์
                       </p>
-                      <button
-                        type="button"
-                        onClick={() => setShowMainDeleteConfirm(true)}
-                        className="flex items-center gap-2 px-4 py-2.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/20 hover:border-rose-500/40 rounded-xl text-xs font-sans font-bold transition duration-200 cursor-pointer shadow-sm"
-                        title="ลบเซิฟเวอร์กลุ่มสะสมเงินนี้อย่างถาวร"
-                      >
-                        <Trash2 className="w-3.5 h-3.5 text-rose-400" />
-                        <span>ลบเซิฟเวอร์ก๊วนนี้</span>
-                      </button>
+                      <div className="flex flex-wrap md:justify-end gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditGroupName(activeGroup.name);
+                            setEditTargetAmount(activeGroup.targetAmountPerMember);
+                            setEditGroupDesc(activeGroup.description || "");
+                            setEditGroupPasscode(activeGroup.passcode || "");
+                            setEditGroupError("");
+                            setEditGroupSuccess(false);
+                            setShowEditGroupModal(true);
+                          }}
+                          className="flex items-center gap-1.5 px-3.5 py-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/20 hover:border-amber-500/40 rounded-xl text-xs font-sans font-bold transition duration-200 cursor-pointer shadow-sm"
+                        >
+                          <Pencil className="w-3.5 h-3.5 text-amber-400" />
+                          <span>แก้ไขยอดเงินรวมกลุ่ม</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setShowMainDeleteConfirm(true)}
+                          className="flex items-center gap-2 px-3.5 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/20 hover:border-rose-500/40 rounded-xl text-xs font-sans font-bold transition duration-200 cursor-pointer shadow-sm"
+                          title="ลบเซิฟเวอร์กลุ่มสะสมเงินนี้อย่างถาวร"
+                        >
+                          <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                          <span>ลบเซิฟเวอร์ก๊วนนี้</span>
+                        </button>
+                      </div>
                     </div>
                   ) : (
                     <div className="flex flex-col items-start md:items-end justify-center space-y-2">
@@ -1023,6 +1105,127 @@ export default function App() {
               >
                 ตกลง
               </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Leader Edit Group & Target Amount Modal */}
+      <AnimatePresence>
+        {showEditGroupModal && (
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-slate-900 border border-slate-800 rounded-3xl w-full max-w-md p-6 shadow-2xl text-slate-100"
+            >
+              <div className="flex items-center justify-between mb-5 pb-3 border-b border-slate-800">
+                <div className="flex items-center gap-2.5 text-amber-400">
+                  <div className="p-2 bg-amber-400/10 rounded-xl border border-amber-400/20">
+                    <Pencil className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold font-sans">แก้ไขยอดเงินรวมและตั้งค่ากลุ่ม</h3>
+                    <p className="text-[11px] text-slate-400 font-sans">เฉพาะหัวหน้ากลุ่ม (Leader Only)</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowEditGroupModal(false)}
+                  className="text-slate-400 hover:text-slate-200 transition text-sm font-bold cursor-pointer p-1"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <form onSubmit={handleEditGroupSubmit} className="space-y-4 font-sans">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                    💰 ยอดเงินรวมเป้าหมายต่อคน (บาท / สัปดาห์) <span className="text-rose-400">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    min={1}
+                    value={editTargetAmount}
+                    onChange={(e) => setEditTargetAmount(Number(e.target.value))}
+                    placeholder="เช่น 200, 300, 500"
+                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-sm font-mono focus:outline-none focus:border-amber-400 text-amber-400 font-bold transition shadow-inner"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1.5 leading-relaxed">
+                    💡 ยอดเงินนี้จะถูกนำไปคำนวณเป้าหมายยอดส่งของสมาชิกทุกคนในกลุ่มทันที
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                    ชื่อกลุ่มก๊วน <span className="text-rose-400">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editGroupName}
+                    onChange={(e) => setEditGroupName(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-sm focus:outline-none focus:border-emerald-500 text-slate-100 transition shadow-inner"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                    คำอธิบายรายละเอียดกลุ่ม (ไม่บังคับ)
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={editGroupDesc}
+                    onChange={(e) => setEditGroupDesc(e.target.value)}
+                    placeholder="รายละเอียดก๊วนสะสมเงิน เช่น วัตถุประสงค์ หรือกติกาในกลุ่ม"
+                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-xs focus:outline-none focus:border-emerald-500 text-slate-200 transition shadow-inner resize-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                    รหัสผ่านเข้าร่วมกลุ่ม (Passcode)
+                  </label>
+                  <input
+                    type="text"
+                    value={editGroupPasscode}
+                    onChange={(e) => setEditGroupPasscode(e.target.value)}
+                    placeholder="เว้นว่างไว้หากต้องการให้เป็นกลุ่มสาธารณะ"
+                    className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-sm font-mono focus:outline-none focus:border-amber-400 text-amber-300 transition shadow-inner"
+                  />
+                </div>
+
+                {editGroupError && (
+                  <p className="text-xs text-rose-400 font-sans">
+                    ⚠️ {editGroupError}
+                  </p>
+                )}
+
+                {editGroupSuccess && (
+                  <p className="text-xs text-emerald-400 font-sans font-bold">
+                    ✓ บันทึกการแก้ไขยอดเงินรวมและตั้งค่ากลุ่มเรียบร้อยแล้ว!
+                  </p>
+                )}
+
+                <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setShowEditGroupModal(false)}
+                    className="px-4 py-2 text-slate-400 hover:text-slate-200 transition text-xs font-medium cursor-pointer"
+                  >
+                    ยกเลิก
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl font-bold text-xs transition shadow-md shadow-amber-950/50 cursor-pointer flex items-center gap-1.5"
+                  >
+                    <Check className="w-4 h-4" />
+                    <span>บันทึกการเปลี่ยนแปลง</span>
+                  </button>
+                </div>
+              </form>
             </motion.div>
           </div>
         )}

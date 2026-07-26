@@ -32,14 +32,6 @@ export function getEarliestDate(groupCreatedAt: string, transactions: Transactio
   if (isNaN(earliest.getTime())) {
     earliest = new Date();
   }
-
-  transactions.forEach((tx) => {
-    const txDate = new Date(`${tx.date}T12:00:00`);
-    if (!isNaN(txDate.getTime()) && txDate < earliest) {
-      earliest = txDate;
-    }
-  });
-
   return earliest;
 }
 
@@ -55,8 +47,20 @@ export function getMondayOfDate(date: Date): Date {
 
 export function generateWeeks(groupCreatedAt: string, transactions: Transaction[]): { label: string; startDate: Date; endDate: Date }[] {
   const earliestDate = getEarliestDate(groupCreatedAt, transactions);
-  const startMonday = getMondayOfDate(earliestDate);
+  let startMonday = getMondayOfDate(earliestDate);
   const currentMonday = getMondayOfDate(new Date());
+
+  // Cap: If group creation date is in the future, cap startMonday to currentMonday
+  if (startMonday > currentMonday) {
+    startMonday = new Date(currentMonday);
+  }
+
+  // Cap: Do not allow generating more than 12 weeks into the past
+  const twelveWeeksAgo = new Date(currentMonday);
+  twelveWeeksAgo.setDate(twelveWeeksAgo.getDate() - 12 * 7);
+  if (startMonday < twelveWeeksAgo) {
+    startMonday = twelveWeeksAgo;
+  }
 
   const weeks: { label: string; startDate: Date; endDate: Date }[] = [];
   const iterDate = new Date(startMonday);
@@ -117,10 +121,14 @@ export function calculateMemberCarryover(
 
   let currentCarryOver = 0;
 
-  weekSpecs.forEach((spec) => {
+  weekSpecs.forEach((spec, weekIdx) => {
     // Filter transactions for this member in this week
+    const isFirstWeek = weekIdx === 0;
     const txsInWeek = memberTxs.filter((tx) => {
       const txDate = new Date(`${tx.date}T12:00:00`);
+      if (isFirstWeek) {
+        return txDate <= spec.endDate;
+      }
       return txDate >= spec.startDate && txDate <= spec.endDate;
     });
 
