@@ -8,10 +8,13 @@ interface MemberManagerProps {
   members: Member[];
   transactions: Transaction[];
   targetAmountPerMember: number;
+  lateFeePerWeek?: number;
+  lateFeeNote?: string;
   groupCreatedAt: string;
   onAddMember: (name: string, nickname: string) => void;
   onDeleteMember: (id: string) => void;
   onEditMember?: (id: string, name: string, nickname: string, newTotalPaid?: number) => void;
+  onUpdateLateFee?: (lateFeePerWeek: number, lateFeeNote: string) => void;
   isLeader?: boolean;
   isGlobalLeader?: boolean;
   profileMemberId?: string;
@@ -23,10 +26,13 @@ export default function MemberManager({
   members,
   transactions,
   targetAmountPerMember,
+  lateFeePerWeek = 0,
+  lateFeeNote = "",
   groupCreatedAt,
   onAddMember,
   onDeleteMember,
   onEditMember,
+  onUpdateLateFee,
   isLeader = false,
   isGlobalLeader = false,
   profileMemberId = "",
@@ -89,7 +95,9 @@ export default function MemberManager({
       member.id,
       transactions,
       targetAmountPerMember,
-      groupCreatedAt
+      groupCreatedAt,
+      lateFeePerWeek,
+      member.initialCarryover || 0
     );
     const memberTxs = transactions.filter((t) => t.memberId === member.id);
 
@@ -144,9 +152,12 @@ export default function MemberManager({
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6" id="member-manager-section">
       <div className="flex items-center justify-between border-b border-slate-800 pb-4 mb-4">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Users className="w-5 h-5 text-emerald-400" />
           <h2 className="text-lg font-sans font-bold text-slate-100">สมาชิกกลุ่ม ({members.length})</h2>
+          <span className="text-[10px] text-slate-400 bg-slate-800/80 px-2.5 py-0.5 rounded-full border border-slate-700/60 flex items-center gap-1 font-sans">
+            <Clock className="w-3 h-3 text-emerald-400" /> รีเซ็ตทุกวันจันทร์ 00:01 น.
+          </span>
         </div>
         {isLeader && (
           <button
@@ -211,6 +222,39 @@ export default function MemberManager({
           </motion.form>
         )}
       </AnimatePresence>
+
+      {/* Late Fee Notice Card */}
+      {lateFeePerWeek > 0 && (
+        <div className="mb-3 px-3.5 py-2.5 bg-rose-500/10 border border-rose-500/25 rounded-2xl flex items-center justify-between gap-2 text-xs font-sans text-rose-300">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+            <span>
+              <strong className="text-rose-400">กฎค่าปรับจ่ายล่าช้า:</strong> ฿{lateFeePerWeek.toLocaleString("th-TH")} / สัปดาห์
+              <span className="text-rose-200 ml-1">
+                (คิดค่าปรับอัตโนมัติทุก 00:01 ของวันจันทร์ สำหรับผู้ที่มียอดค้างชำระจากสัปดาห์ก่อนหน้า ถ้าสัปดาห์นี้จ่ายครบแล้วค่าปรับจะหายไป)
+              </span>
+              {lateFeeNote && (
+                <span className="text-rose-300 font-semibold block sm:inline sm:ml-1">
+                  • หมายเหตุ: {lateFeeNote}
+                </span>
+              )}
+            </span>
+          </div>
+          {isLeader && onUpdateLateFee && (
+            <button
+              onClick={() => {
+                if (confirm("ต้องการยกเลิกการคิดค่าปรับ (ปรับเป็น 0 บาทไว้ก่อน) ใช่หรือไม่?")) {
+                  onUpdateLateFee(0, "");
+                }
+              }}
+              className="bg-rose-500/20 hover:bg-rose-500/30 text-rose-200 border border-rose-500/40 px-2.5 py-1 rounded-xl text-[11px] font-bold transition shrink-0 cursor-pointer flex items-center gap-1"
+              title="ปิดการคิดค่าปรับล่าช้าชั่วคราว"
+            >
+              <span>🔕 ยกเลิกค่าปรับไว้ก่อน</span>
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Search Input */}
       <div className="relative mb-3">
@@ -290,7 +334,7 @@ export default function MemberManager({
                 key={m.id}
                 className="flex flex-col gap-2 p-3 bg-slate-800/20 border border-emerald-500/30 rounded-2xl transition"
               >
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <div>
                     <label className="block text-[9px] text-slate-400 mb-0.5">ชื่อเล่น</label>
                     <input
@@ -302,26 +346,26 @@ export default function MemberManager({
                     />
                   </div>
                   <div>
-                    <label className="block text-[9px] text-slate-400 mb-0.5">ยอดเงินที่จ่ายแล้ว (฿)</label>
+                    <label className="block text-[9px] text-slate-400 mb-0.5">ชื่อจริงสำหรับตรวจสอบสลิป</label>
+                    <input
+                      type="text"
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      placeholder="ชื่อจริง (ใช้ตรวจสลิป)"
+                      className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-slate-100 focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[9px] text-emerald-400 font-semibold mb-0.5">ยอดเงินที่จ่ายแล้ว (฿)</label>
                     <input
                       type="number"
                       step="any"
                       value={editTotalPaid}
                       onChange={(e) => setEditTotalPaid(e.target.value)}
                       placeholder="ยอดโอนสะสม"
-                      className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-emerald-400 font-mono focus:outline-none focus:border-emerald-500"
+                      className="w-full px-2.5 py-1.5 bg-slate-900 border border-emerald-500/50 rounded-lg text-xs text-emerald-400 font-mono focus:outline-none focus:border-emerald-500"
                     />
                   </div>
-                </div>
-                <div>
-                  <label className="block text-[9px] text-slate-400 mb-0.5">ชื่อจริงสำหรับตรวจสอบสลิป</label>
-                  <input
-                    type="text"
-                    value={editName}
-                    onChange={(e) => setEditName(e.target.value)}
-                    placeholder="ชื่อจริง (ใช้ตรวจสลิป)"
-                    className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-slate-100 focus:outline-none focus:border-emerald-500"
-                  />
                 </div>
                 <div className="flex justify-end gap-1.5 pt-1">
                   <button
@@ -380,6 +424,11 @@ export default function MemberManager({
                           💰 ทบมาจากสัปดาห์ก่อน ฿{m.carryover.currentWeekStatus.carriedIn.toLocaleString("th-TH")}
                         </span>
                       )}
+                      {m.carryover.currentWeekStatus.lateFeeThisWeek > 0 && (
+                        <span className="text-[9px] font-sans font-bold text-rose-400 bg-rose-500/15 border border-rose-500/30 px-1.5 py-0.5 rounded w-fit flex items-center gap-1">
+                          ⚡ ค่าปรับล่าช้า +฿{m.carryover.currentWeekStatus.lateFeeThisWeek.toLocaleString("th-TH")}
+                        </span>
+                      )}
                       {m.carryover.currentWeekStatus.carriedIn < 0 && m.carryover.currentWeekStatus.rawPaidThisWeek < Math.abs(m.carryover.currentWeekStatus.carriedIn) && (
                         <span className="text-[9px] font-sans text-rose-400 bg-rose-500/5 border border-rose-500/10 px-1.5 py-0.5 rounded w-fit flex items-center gap-1">
                           ⚠️ ค้างทบมาจากสัปดาห์ก่อน ฿{(Math.abs(m.carryover.currentWeekStatus.carriedIn) - m.carryover.currentWeekStatus.rawPaidThisWeek).toLocaleString("th-TH")}
@@ -407,6 +456,16 @@ export default function MemberManager({
                         </span>
                       )}
                     </div>
+                  ) : m.carryover.currentWeekStatus.lateFeeThisWeek > 0 ? (
+                    <div className="flex flex-col items-end gap-0.5">
+                      <span className="text-[9px] font-sans font-bold text-rose-400 bg-rose-500/15 border border-rose-500/30 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                        <AlertTriangle className="w-3 h-3 text-rose-400" />
+                        <span>ค้างจ่าย ฿{m.carryover.currentWeekStatus.deficit.toLocaleString("th-TH")}</span>
+                      </span>
+                      <span className="text-[8px] text-rose-300 font-sans">
+                        (รวมค่าปรับ +฿{m.carryover.currentWeekStatus.lateFeeThisWeek.toLocaleString("th-TH")})
+                      </span>
+                    </div>
                   ) : m.isPartial ? (
                     <span className="text-[9px] font-sans font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-full flex items-center gap-0.5">
                       <AlertTriangle className="w-3 h-3" /> ค้าง ฿{m.carryover.currentWeekStatus.deficit.toLocaleString("th-TH")}
@@ -425,7 +484,7 @@ export default function MemberManager({
                           handleStartEdit(m);
                         }}
                         className="p-1 text-slate-500 hover:text-emerald-400 rounded-lg hover:bg-emerald-500/10 transition"
-                        title="แก้ไขชื่อและยอดเงินสะสมของสมาชิก"
+                        title="แก้ไขชื่อและยอดเงินสะสม"
                       >
                         <Edit2 className="w-3 h-3" />
                       </button>
@@ -496,12 +555,14 @@ export default function MemberManager({
                     </p>
                   </div>
                 </div>
-                <button
-                  onClick={() => setSelectedMemberId(null)}
-                  className="p-1.5 hover:bg-slate-800 rounded-xl text-slate-400 hover:text-slate-200 transition"
-                >
-                  <X className="w-5 h-5" />
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setSelectedMemberId(null)}
+                    className="p-1.5 hover:bg-slate-800 rounded-xl text-slate-400 hover:text-slate-200 transition"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
               </div>
 
               {/* Scrollable Modal Content */}
@@ -554,6 +615,13 @@ export default function MemberManager({
                       </p>
                     </div>
                   </div>
+
+                  {selectedMember.carryover.currentWeekStatus.lateFeeThisWeek > 0 && (
+                    <div className="bg-rose-500/10 border border-rose-500/25 text-rose-300 text-xs py-2 px-3 rounded-xl flex items-center gap-1.5 justify-center font-semibold">
+                      <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                      <span>⚡ ถูกบวกค่าปรับจ่ายล่าช้าในสัปดาห์นี้: <strong className="text-rose-400 font-mono">+฿{selectedMember.carryover.currentWeekStatus.lateFeeThisWeek.toLocaleString("th-TH")}</strong></span>
+                    </div>
+                  )}
 
                   {selectedMember.isPaidFully ? (
                     <div className="flex flex-col gap-1.5">
@@ -627,6 +695,16 @@ export default function MemberManager({
                               </span>
                             </div>
                           </div>
+
+                          {week.lateFee > 0 && (
+                            <div className="bg-rose-500/10 border border-rose-500/25 text-rose-300 text-[10px] py-1 px-2 rounded-lg flex items-center justify-between">
+                              <span className="flex items-center gap-1 font-semibold">
+                                <AlertTriangle className="w-3 h-3 text-rose-400" />
+                                <span>ค่าปรับจ่ายล่าช้าในสัปดาห์นี้:</span>
+                              </span>
+                              <strong className="font-mono text-rose-400">+฿{week.lateFee}</strong>
+                            </div>
+                          )}
 
                           {week.carriedOut > 0 && (
                             <div className="bg-emerald-500/5 border border-emerald-500/10 text-emerald-400 text-[10px] py-1 px-2 rounded-lg flex items-center justify-between">

@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Group, Member, Transaction } from "../types";
-import { Plus, Users, Landmark, PiggyBank, Target, ChevronDown, Lock, Unlock, ShieldAlert, ShieldCheck, Trash2, Key, Copy, Check, Smartphone, RefreshCw, Laptop } from "lucide-react";
+import { Plus, Users, Landmark, PiggyBank, Target, ChevronDown, Lock, Unlock, ShieldAlert, ShieldCheck, Trash2, Key, Copy, Check, Smartphone, RefreshCw, Laptop, Settings, Crown } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
 interface HeaderProps {
@@ -23,6 +23,7 @@ interface HeaderProps {
   profileEmoji?: string;
   profileMemberId?: string;
   onUpdateProfile?: (nickname: string, realName: string, emoji: string, memberId: string) => void;
+  onOpenGroupSettings?: () => void;
 }
 
 export default function Header({
@@ -44,6 +45,7 @@ export default function Header({
   profileEmoji = "🦊",
   profileMemberId = "",
   onUpdateProfile,
+  onOpenGroupSettings,
 }: HeaderProps) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
@@ -273,6 +275,18 @@ export default function Header({
                  <span className="text-sm shrink-0">{profileEmoji || "🦊"}</span>
                  <span className="hidden sm:inline">โปรไฟล์:</span>
                  <span className="max-w-[80px] truncate">{profileNickname || "ตั้งค่าโปรไฟล์"}</span>
+               </button>
+
+               <button
+                 onClick={() => {
+                   onOpenGroupSettings?.();
+                 }}
+                 className="flex items-center gap-1.5 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 hover:border-amber-500/50 px-3 py-2 rounded-xl text-xs font-sans font-bold shadow-sm transition cursor-pointer"
+                 title="ตั้งค่าก๊วน ค่าปรับจ่ายช้า และแอดหัวหน้ากลุ่ม"
+               >
+                 <Settings className="w-4 h-4 text-amber-400 animate-spin-slow" />
+                 <span className="hidden sm:inline">⚙️ ตั้งค่า / แอดหัวหน้า</span>
+                 <span className="sm:hidden">⚙️ ตั้งค่า</span>
                </button>
 
                {isLeader ? (

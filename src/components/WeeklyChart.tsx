@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Transaction, Member } from "../types";
 import { Calendar, TrendingUp, DollarSign, CalendarRange, Info } from "lucide-react";
 import { motion } from "motion/react";
+import { parseTxDateTime } from "../lib/carryover";
 
 interface WeeklyChartProps {
   transactions: Transaction[];
@@ -22,22 +23,26 @@ export default function WeeklyChart({ transactions, members }: WeeklyChartProps)
   const [selectedWeekIdx, setSelectedWeekIdx] = useState<number | null>(null);
 
   const weeklyData = useMemo(() => {
-    // Generate the last 6 weeks of data up to the current date
     const weeks: WeekData[] = [];
     const now = new Date();
+    const currentDay = now.getDay();
+    let diffToMonday = currentDay === 0 ? -6 : 1 - currentDay;
+    if (currentDay === 1 && now.getHours() === 0 && now.getMinutes() < 1) {
+      diffToMonday -= 7;
+    }
 
     // Generate weeks dynamically
     for (let i = 5; i >= 0; i--) {
       const startOfWeek = new Date();
-      // Adjust to Monday of that week
-      const currentDay = now.getDay(); // 0 is Sunday, 1 is Monday...
-      const diffToMonday = currentDay === 0 ? -6 : 1 - currentDay;
       startOfWeek.setDate(now.getDate() + diffToMonday - i * 7);
-      startOfWeek.setHours(0, 0, 0, 0);
+      startOfWeek.setHours(0, 1, 0, 0); // Monday 00:01:00
 
       const endOfWeek = new Date(startOfWeek);
-      endOfWeek.setDate(startOfWeek.getDate() + 6);
-      endOfWeek.setHours(23, 59, 59, 999);
+      endOfWeek.setDate(startOfWeek.getDate() + 7);
+      endOfWeek.setHours(0, 0, 59, 999); // Next Monday 00:00:59
+
+      const endDisplay = new Date(startOfWeek);
+      endDisplay.setDate(startOfWeek.getDate() + 6);
 
       // Format Labels
       const formatDate = (d: Date) => {
@@ -47,7 +52,7 @@ export default function WeeklyChart({ transactions, members }: WeeklyChartProps)
         });
       };
 
-      const label = `${formatDate(startOfWeek)} - ${formatDate(endOfWeek)}`;
+      const label = `${formatDate(startOfWeek)} - ${formatDate(endDisplay)}`;
       const shortLabel = `สัปดาห์ที่ ${6 - i}`;
 
       weeks.push({
@@ -63,7 +68,7 @@ export default function WeeklyChart({ transactions, members }: WeeklyChartProps)
 
     // Populate data with actual transactions
     transactions.forEach((tx) => {
-      const txDate = new Date(`${tx.date}T12:00:00`); // Use noon to prevent timezone shifts
+      const txDate = parseTxDateTime(tx);
 
       weeks.forEach((week) => {
         if (txDate >= week.startDate && txDate <= week.endDate) {

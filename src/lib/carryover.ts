@@ -6,7 +6,8 @@ export interface WeekCarryoverData {
   endDate: Date;
   rawPaid: number;          // Actual amount paid in this specific week
   carriedIn: number;        // Carried over from the previous week
-  available: number;        // rawPaid + carriedIn
+  lateFee: number;          // ค่าปรับจ่ายล่าช้าสำหรับสัปดาห์นี้
+  available: number;        // rawPaid + carriedIn - lateFee
   target: number;           // targetAmountPerMember
   isPaidFully: boolean;
   deficit: number;          // If not fully paid, how much is still needed
@@ -23,6 +24,7 @@ export interface MemberCarryoverResult {
     carriedIn: number;
     carriedOut: number;
     rawPaidThisWeek: number;
+    lateFeeThisWeek: number;
   };
   weeksHistory: WeekCarryoverData[];
 }
@@ -39,10 +41,30 @@ export function getMondayOfDate(date: Date): Date {
   const d = new Date(date);
   const day = d.getDay();
   // day: 0 is Sunday, 1 is Monday, ..., 6 is Saturday
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+  let diff = d.getDate() - day + (day === 0 ? -6 : 1);
+
+  // If it's Monday but before 00:01 (0 hours, 0 mins), it belongs to the previous week!
+  if (day === 1 && d.getHours() === 0 && d.getMinutes() < 1) {
+    diff -= 7;
+  }
+
   const monday = new Date(d.setDate(diff));
-  monday.setHours(0, 0, 0, 0);
+  monday.setHours(0, 1, 0, 0); // Monday 00:01:00
   return monday;
+}
+
+export function parseTxDateTime(tx: Transaction): Date {
+  if (tx.time && tx.date) {
+    const timeStr = tx.time.length === 5 ? `${tx.time}:00` : tx.time;
+    const d = new Date(`${tx.date}T${timeStr}`);
+    if (!isNaN(d.getTime())) return d;
+  }
+  if (tx.createdAt) {
+    const d = new Date(tx.createdAt);
+    if (!isNaN(d.getTime())) return d;
+  }
+  const d = new Date(`${tx.date}T12:00:00`);
+  return isNaN(d.getTime()) ? new Date() : d;
 }
 
 export function generateWeeks(groupCreatedAt: string, transactions: Transaction[]): { label: string; startDate: Date; endDate: Date }[] {
@@ -75,12 +97,15 @@ export function generateWeeks(groupCreatedAt: string, transactions: Transaction[
 
   // Generate weeks up to current week
   while (iterDate <= currentMonday) {
-    const startOfWeek = new Date(iterDate);
+    const startOfWeek = new Date(iterDate); // Monday 00:01:00
     const endOfWeek = new Date(iterDate);
-    endOfWeek.setDate(iterDate.getDate() + 6);
-    endOfWeek.setHours(23, 59, 59, 999);
+    endOfWeek.setDate(iterDate.getDate() + 7);
+    endOfWeek.setHours(0, 0, 59, 999); // Next Monday 00:00:59
 
-    const label = `${formatDate(startOfWeek)} - ${formatDate(endOfWeek)}`;
+    const endDisplay = new Date(startOfWeek);
+    endDisplay.setDate(startOfWeek.getDate() + 6);
+
+    const label = `${formatDate(startOfWeek)} - ${formatDate(endDisplay)}`;
     weeks.push({
       label,
       startDate: startOfWeek,
@@ -95,10 +120,14 @@ export function generateWeeks(groupCreatedAt: string, transactions: Transaction[
   if (weeks.length === 0) {
     const startOfWeek = new Date(currentMonday);
     const endOfWeek = new Date(currentMonday);
-    endOfWeek.setDate(currentMonday.getDate() + 6);
-    endOfWeek.setHours(23, 59, 59, 999);
+    endOfWeek.setDate(currentMonday.getDate() + 7);
+    endOfWeek.setHours(0, 0, 59, 999);
+
+    const endDisplay = new Date(startOfWeek);
+    endDisplay.setDate(startOfWeek.getDate() + 6);
+
     weeks.push({
-      label: `${formatDate(startOfWeek)} - ${formatDate(endOfWeek)}`,
+      label: `${formatDate(startOfWeek)} - ${formatDate(endDisplay)}`,
       startDate: startOfWeek,
       endDate: endOfWeek,
     });
@@ -111,7 +140,9 @@ export function calculateMemberCarryover(
   memberId: string,
   transactions: Transaction[],
   targetAmount: number,
-  groupCreatedAt: string
+  groupCreatedAt: string,
+  lateFeePerWeek: number = 0,
+  initialCarryover: number = 0
 ): MemberCarryoverResult {
   const memberTxs = transactions.filter((t) => t.memberId === memberId);
   const totalPaidAllTime = memberTxs.reduce((sum, t) => sum + t.amount, 0);
@@ -119,21 +150,25 @@ export function calculateMemberCarryover(
   const weekSpecs = generateWeeks(groupCreatedAt, transactions);
   const weeksHistory: WeekCarryoverData[] = [];
 
-  let currentCarryOver = 0;
+  let currentCarryOver = initialCarryover;
 
   weekSpecs.forEach((spec, weekIdx) => {
     // Filter transactions for this member in this week
     const isFirstWeek = weekIdx === 0;
     const txsInWeek = memberTxs.filter((tx) => {
-      const txDate = new Date(`${tx.date}T12:00:00`);
+      const txDate = parseTxDateTime(tx);
       if (isFirstWeek) {
         return txDate <= spec.endDate;
       }
       return txDate >= spec.startDate && txDate <= spec.endDate;
     });
 
+    // ค่าปรับจ่ายล่าช้าคิดเฉพาะสมาชิกที่มียอดค้างชำระยกมาจากสัปดาห์ก่อนหน้า และหากสัปดาห์นี้จ่ายจนครบแล้ว ค่าปรับจะหายไป
     const rawPaid = txsInWeek.reduce((sum, tx) => sum + tx.amount, 0);
-    const available = rawPaid + currentCarryOver;
+    const availableBeforeFee = rawPaid + currentCarryOver;
+    const isPaidFullyBeforeFee = availableBeforeFee >= targetAmount;
+    const lateFee = (!isFirstWeek && currentCarryOver < 0 && !isPaidFullyBeforeFee && lateFeePerWeek > 0) ? lateFeePerWeek : 0;
+    const available = availableBeforeFee - lateFee;
 
     let isPaidFully = false;
     let deficit = 0;
@@ -155,6 +190,7 @@ export function calculateMemberCarryover(
       endDate: spec.endDate,
       rawPaid,
       carriedIn: currentCarryOver,
+      lateFee,
       available,
       target: targetAmount,
       isPaidFully,
@@ -180,6 +216,7 @@ export function calculateMemberCarryover(
       carriedIn: currentWeek.carriedIn,
       carriedOut: currentWeek.carriedOut,
       rawPaidThisWeek: currentWeek.rawPaid,
+      lateFeeThisWeek: currentWeek.lateFee,
     },
     weeksHistory,
   };

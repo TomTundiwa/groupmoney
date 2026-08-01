@@ -2,8 +2,12 @@ export interface Group {
   id: string;
   name: string;
   targetAmountPerMember: number;
+  lateFeePerWeek?: number; // ค่าปรับจ่ายล่าช้า (บาท / สัปดาห์)
+  lateFeeNote?: string; // เงื่อนไข/คำอธิบายค่าปรับจ่ายช้า
   description?: string;
   passcode?: string; // Optional passcode to join and see the group
+  leaderPasscode?: string; // รหัสผ่านสำหรับเพิ่ม/เป็นหัวหน้ากลุ่มร่วม
+  coLeaders?: string[]; // รายชื่อหัวหน้ากลุ่มร่วม
   createdAt: string;
 }
 
@@ -13,6 +17,7 @@ export interface Member {
   name: string; // Real or full name used on bank transfers
   nickname: string; // Friendly name for group tracking
   createdAt: string;
+  initialCarryover?: number; // ยอดค้าง/ยอดสมทบยกมาตั้งต้น (ติดลบคือค้างจ่าย บวกคือจ่ายเกินทบมา)
 }
 
 export interface Transaction {
