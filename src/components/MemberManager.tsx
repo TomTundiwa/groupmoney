@@ -231,7 +231,7 @@ export default function MemberManager({
             <span>
               <strong className="text-rose-400">กฎค่าปรับจ่ายล่าช้า:</strong> ฿{lateFeePerWeek.toLocaleString("th-TH")} / สัปดาห์
               <span className="text-rose-200 ml-1">
-                (คิดค่าปรับอัตโนมัติทุก 00:01 ของวันจันทร์ สำหรับผู้ที่มียอดค้างชำระจากสัปดาห์ก่อนหน้า ถ้าจ่ายเงินส่วนต่างที่ค้างมาครบแล้วค่าปรับจะหายไปทันที)
+                (คิดค่าปรับอัตโนมัติทุก 00:01 ของวันจันทร์ สำหรับผู้ที่มียอดค้างชำระจากสัปดาห์ก่อนหน้า • ยอดทบคือยอดที่จ่ายเกินทั้งค่าปรับและยอดรายอาทิตย์ • ค่าปรับจะไม่ทบเป็นยอดค้างของอาทิตย์ถัดไป)
               </span>
               {lateFeeNote && (
                 <span className="text-rose-300 font-semibold block sm:inline sm:ml-1">
@@ -631,7 +631,7 @@ export default function MemberManager({
                       {selectedMember.carryover.currentWeekStatus.carriedOut > 0 && (
                         <div className="bg-blue-500/10 border border-blue-500/20 text-blue-300 text-[11px] py-1.5 px-3 rounded-xl flex items-center gap-1.5 justify-center">
                           <Coins className="w-4 h-4 text-amber-400" />
-                          <span>มียอดเงินโอนเกินสะสมทบไปสัปดาห์หน้า: <strong className="text-emerald-400">฿{selectedMember.carryover.currentWeekStatus.carriedOut.toLocaleString("th-TH")}</strong></span>
+                          <span>มียอดเงินโอนเกินสะสมทบไปสัปดาห์หน้า: <strong className="text-emerald-400">฿{selectedMember.carryover.currentWeekStatus.carriedOut.toLocaleString("th-TH")}</strong> <span className="text-[10px] text-blue-300/80">(ยอดจ่ายเกินทั้งค่าปรับและเป้ารายอาทิตย์)</span></span>
                         </div>
                       )}
                     </div>
