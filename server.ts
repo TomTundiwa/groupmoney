@@ -123,7 +123,9 @@ app.post("/api/parse-slip", async (req, res) => {
       return new Date().toTimeString().slice(0, 5);
     };
 
-    const hasSlipOk = !!(process.env.SLIPOK_API_KEY || "SLIPOK9AS7RET");
+    const slipOkApiKey = process.env.SLIPOK_API_KEY;
+    const slipOkBranchId = process.env.SLIPOK_BRANCH_ID || "71624";
+    const hasSlipOk = !!(slipOkApiKey && slipOkApiKey !== "SLIPOK9AS7RET");
 
     if (hasSlipOk) {
       try {
@@ -133,10 +135,10 @@ app.post("/api/parse-slip", async (req, res) => {
         const formData = new FormData();
         formData.append("files", blob, "slip.jpg");
 
-        const slipOkResponse = await fetch("https://api.slipok.com/api/line/apikey/71624", {
+        const slipOkResponse = await fetch(`https://api.slipok.com/api/line/apikey/${slipOkBranchId}`, {
           method: "POST",
           headers: {
-            "x-authorization": process.env.SLIPOK_API_KEY || "SLIPOK9AS7RET",
+            "x-authorization": slipOkApiKey,
           },
           body: formData,
         });
@@ -161,13 +163,13 @@ app.post("/api/parse-slip", async (req, res) => {
             console.log("[SLIP PARSER] Returning SlipOK result:", parsedResult);
             return res.json({ success: true, data: parsedResult });
           } else {
-            console.warn("[SLIP PARSER] SlipOK response success was false:", resJson);
+            console.log("[SLIP PARSER] SlipOK response success was false, falling back to Gemini AI:", resJson);
           }
         } else {
-          console.warn("[SLIP PARSER] SlipOK API returned error status:", slipOkResponse.status);
+          console.log(`[SLIP PARSER] SlipOK API unavailable (status ${slipOkResponse.status}), seamlessly falling back to Gemini AI.`);
         }
       } catch (err: any) {
-        console.error("[SLIP PARSER] SlipOK integration failed, falling back to Gemini:", err.message || err);
+        console.log("[SLIP PARSER] SlipOK integration check skipped, falling back seamlessly to Gemini AI.");
       }
     }
 

@@ -231,7 +231,7 @@ export default function MemberManager({
             <span>
               <strong className="text-rose-400">กฎค่าปรับจ่ายล่าช้า:</strong> ฿{lateFeePerWeek.toLocaleString("th-TH")} / สัปดาห์
               <span className="text-rose-200 ml-1">
-                (คิดค่าปรับอัตโนมัติทุก 00:01 ของวันจันทร์ สำหรับผู้ที่มียอดค้างชำระจากสัปดาห์ก่อนหน้า • ยอดทบคือยอดที่จ่ายเกินทั้งค่าปรับและยอดรายอาทิตย์ • ค่าปรับจะไม่ทบเป็นยอดค้างของอาทิตย์ถัดไป)
+                (คิดค่าปรับอัตโนมัติทุก 00:01 ของวันจันทร์ สำหรับผู้ที่มียอดค้างชำระจากสัปดาห์ก่อนหน้า • ยอดค่าปรับหากจ่ายแล้วจะไม่ทบอาทิตย์ถัดไป และป้ายแจ้งเตือนสีแดงจะหายไปเปลี่ยนเป็นสีเขียว • ค้างจ่ายถ้าจ่ายครบแล้วจะหายไป ไม่เอาไปทบสัปดาห์อื่น • ยอดทบคือยอดที่จ่ายเกินทั้งค่าปรับและยอดรายอาทิตย์)
               </span>
               {lateFeeNote && (
                 <span className="text-rose-300 font-semibold block sm:inline sm:ml-1">
@@ -425,9 +425,15 @@ export default function MemberManager({
                         </span>
                       )}
                       {m.carryover.currentWeekStatus.lateFeeThisWeek > 0 && (
-                        <span className="text-[9px] font-sans font-bold text-rose-400 bg-rose-500/15 border border-rose-500/30 px-1.5 py-0.5 rounded w-fit flex items-center gap-1">
-                          ⚡ ค่าปรับล่าช้า +฿{m.carryover.currentWeekStatus.lateFeeThisWeek.toLocaleString("th-TH")}
-                        </span>
+                        m.carryover.currentWeekStatus.rawPaidThisWeek >= m.carryover.currentWeekStatus.lateFeeThisWeek ? (
+                          <span className="text-[9px] font-sans font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded w-fit flex items-center gap-1">
+                            ✓ จ่ายค่าปรับแล้ว ฿{m.carryover.currentWeekStatus.lateFeeThisWeek.toLocaleString("th-TH")}
+                          </span>
+                        ) : (
+                          <span className="text-[9px] font-sans font-bold text-rose-400 bg-rose-500/15 border border-rose-500/30 px-1.5 py-0.5 rounded w-fit flex items-center gap-1">
+                            ⚡ ค่าปรับล่าช้า +฿{m.carryover.currentWeekStatus.lateFeeThisWeek.toLocaleString("th-TH")}
+                          </span>
+                        )
                       )}
                       {m.carryover.currentWeekStatus.carriedIn < 0 && m.carryover.currentWeekStatus.rawPaidThisWeek < Math.abs(m.carryover.currentWeekStatus.carriedIn) && (
                         <span className="text-[9px] font-sans text-rose-400 bg-rose-500/5 border border-rose-500/10 px-1.5 py-0.5 rounded w-fit flex items-center gap-1">
@@ -436,7 +442,7 @@ export default function MemberManager({
                       )}
                       {m.carryover.currentWeekStatus.carriedIn < 0 && m.carryover.currentWeekStatus.rawPaidThisWeek >= Math.abs(m.carryover.currentWeekStatus.carriedIn) && !m.isPaidFully && (
                         <span className="text-[9px] font-sans text-emerald-400 bg-emerald-500/5 border border-emerald-500/10 px-1.5 py-0.5 rounded w-fit flex items-center gap-1">
-                          💰 จ่ายยอดค้างสัปดาห์ก่อนครบแล้ว
+                          💰 จ่ายทบเคลียร์ยอดค้างแล้ว (ค้างจ่ายและค่าปรับหายไป)
                         </span>
                       )}
                     </div>
@@ -456,7 +462,7 @@ export default function MemberManager({
                         </span>
                       )}
                     </div>
-                  ) : m.carryover.currentWeekStatus.lateFeeThisWeek > 0 ? (
+                  ) : m.carryover.currentWeekStatus.lateFeeThisWeek > 0 && m.carryover.currentWeekStatus.rawPaidThisWeek < m.carryover.currentWeekStatus.lateFeeThisWeek ? (
                     <div className="flex flex-col items-end gap-0.5">
                       <span className="text-[9px] font-sans font-bold text-rose-400 bg-rose-500/15 border border-rose-500/30 px-2.5 py-0.5 rounded-full flex items-center gap-1">
                         <AlertTriangle className="w-3 h-3 text-rose-400" />
@@ -602,9 +608,16 @@ export default function MemberManager({
                           ? "text-emerald-400"
                           : "text-rose-400"
                       }`}>
-                        {selectedMember.carryover.currentWeekStatus.carriedIn >= 0 ? "+" : "-"}฿{Math.abs(selectedMember.carryover.currentWeekStatus.carriedIn).toLocaleString("th-TH")}
-                        {selectedMember.carryover.currentWeekStatus.carriedIn < 0 && selectedMember.carryover.currentWeekStatus.rawPaidThisWeek >= Math.abs(selectedMember.carryover.currentWeekStatus.carriedIn) && (
-                          <span className="block text-[8px] font-sans font-normal text-emerald-400 mt-0.5">จ่ายแล้ว</span>
+                        {selectedMember.carryover.currentWeekStatus.carriedIn >= 0 ? (
+                          `+฿${Math.abs(selectedMember.carryover.currentWeekStatus.carriedIn).toLocaleString("th-TH")}`
+                        ) : selectedMember.carryover.currentWeekStatus.rawPaidThisWeek >= Math.abs(selectedMember.carryover.currentWeekStatus.carriedIn) ? (
+                          <span>
+                            <span className="line-through text-slate-500 font-normal mr-1.5">-฿{Math.abs(selectedMember.carryover.currentWeekStatus.carriedIn).toLocaleString("th-TH")}</span>
+                            <span className="text-emerald-400">฿0</span>
+                            <span className="block text-[9px] font-sans font-normal text-emerald-400 mt-0.5">✓ จ่ายทบแล้วค้างจ่ายและค่าปรับหายไป</span>
+                          </span>
+                        ) : (
+                          `-฿${Math.abs(selectedMember.carryover.currentWeekStatus.carriedIn).toLocaleString("th-TH")}`
                         )}
                       </p>
                     </div>
@@ -617,10 +630,18 @@ export default function MemberManager({
                   </div>
 
                   {selectedMember.carryover.currentWeekStatus.lateFeeThisWeek > 0 && (
-                    <div className="bg-rose-500/10 border border-rose-500/25 text-rose-300 text-xs py-2 px-3 rounded-xl flex items-center gap-1.5 justify-center font-semibold">
-                      <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
-                      <span>⚡ ถูกบวกค่าปรับจ่ายล่าช้าในสัปดาห์นี้: <strong className="text-rose-400 font-mono">+฿{selectedMember.carryover.currentWeekStatus.lateFeeThisWeek.toLocaleString("th-TH")}</strong> <span className="text-[11px] font-normal text-rose-300/80">(ไม่ทบเป็นยอดค้างของสัปดาห์ถัดไป)</span></span>
-                    </div>
+                    selectedMember.carryover.currentWeekStatus.rawPaidThisWeek >= selectedMember.carryover.currentWeekStatus.lateFeeThisWeek ? (
+                      <div className="bg-emerald-500/10 border border-emerald-500/25 text-emerald-300 text-xs py-2 px-3 rounded-xl flex items-center gap-1.5 justify-center font-semibold">
+                        <span className="text-emerald-400">✓ ชำระค่าปรับจ่ายล่าช้าของสัปดาห์นี้แล้ว:</span>
+                        <strong className="text-emerald-400 font-mono">฿{selectedMember.carryover.currentWeekStatus.lateFeeThisWeek.toLocaleString("th-TH")}</strong>
+                        <span className="text-[11px] font-normal text-emerald-300/80">(ยอดค่าปรับจ่ายแล้ว ไม่ทบอาทิตย์ถัดไป)</span>
+                      </div>
+                    ) : (
+                      <div className="bg-rose-500/10 border border-rose-500/25 text-rose-300 text-xs py-2 px-3 rounded-xl flex items-center gap-1.5 justify-center font-semibold">
+                        <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                        <span>⚡ ถูกบวกค่าปรับจ่ายล่าช้าในสัปดาห์นี้: <strong className="text-rose-400 font-mono">+฿{selectedMember.carryover.currentWeekStatus.lateFeeThisWeek.toLocaleString("th-TH")}</strong> <span className="text-[11px] font-normal text-rose-300/80">(ยอดค่าปรับหากจ่ายแล้วจะไม่ทบอาทิตย์ถัดไป)</span></span>
+                      </div>
+                    )
                   )}
 
                   {selectedMember.isPaidFully ? (
@@ -697,13 +718,22 @@ export default function MemberManager({
                           </div>
 
                           {week.lateFee > 0 && (
-                            <div className="bg-rose-500/10 border border-rose-500/25 text-rose-300 text-[10px] py-1 px-2 rounded-lg flex items-center justify-between">
-                              <span className="flex items-center gap-1 font-semibold">
-                                <AlertTriangle className="w-3 h-3 text-rose-400" />
-                                <span>ค่าปรับจ่ายล่าช้าในสัปดาห์นี้:</span>
-                              </span>
-                              <strong className="font-mono text-rose-400">+฿{week.lateFee}</strong>
-                            </div>
+                            week.rawPaid >= week.lateFee ? (
+                              <div className="bg-emerald-500/10 border border-emerald-500/25 text-emerald-300 text-[10px] py-1 px-2 rounded-lg flex items-center justify-between">
+                                <span className="flex items-center gap-1 font-semibold">
+                                  <span>✓ ค่าปรับจ่ายล่าช้า (ชำระแล้ว):</span>
+                                </span>
+                                <strong className="font-mono text-emerald-400">฿{week.lateFee}</strong>
+                              </div>
+                            ) : (
+                              <div className="bg-rose-500/10 border border-rose-500/25 text-rose-300 text-[10px] py-1 px-2 rounded-lg flex items-center justify-between">
+                                <span className="flex items-center gap-1 font-semibold">
+                                  <AlertTriangle className="w-3 h-3 text-rose-400" />
+                                  <span>ค่าปรับจ่ายล่าช้าในสัปดาห์นี้:</span>
+                                </span>
+                                <strong className="font-mono text-rose-400">+฿{week.lateFee}</strong>
+                              </div>
+                            )
                           )}
 
                           {week.carriedOut > 0 && (

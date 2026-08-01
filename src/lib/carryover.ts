@@ -164,9 +164,11 @@ export function calculateMemberCarryover(
     });
 
     // ค่าปรับจ่ายล่าช้าคิดสำหรับสมาชิกที่มียอดค้างชำระยกมาจากสัปดาห์ก่อนหน้า (currentCarryOver < 0)
-    // ยอดทบ (carriedOut > 0) คือยอดที่จ่ายเกินทั้งค่าปรับและยอดรายอาทิตย์ ส่วนยอดค้าง (carriedOut < 0) จะไม่ทบค่าปรับไปอาทิตย์ถัดไป
-    const lateFee = (!isFirstWeek && currentCarryOver < 0 && lateFeePerWeek > 0) ? lateFeePerWeek : 0;
+    // ยอดค่าปรับหากจ่ายแล้วจะไม่ทบอาทิตย์ถัดไป และค่าปรับที่ยังไม่ได้จ่ายก็จะไม่ถูกนำไปทบเป็นยอดค้างในอาทิตย์ถัดไปเช่นกัน
     const rawPaid = txsInWeek.reduce((sum, tx) => sum + tx.amount, 0);
+    const lateFee = (!isFirstWeek && currentCarryOver < 0 && lateFeePerWeek > 0) ? lateFeePerWeek : 0;
+    // เงินที่จ่ายในสัปดาห์นี้ หลังจากหักชำระค่าปรับ (ถ้ามี) แล้ว — เพื่อให้ค่าปรับที่จ่ายไปไม่ทบอาทิตย์ถัดไป
+    const effectivePaidForPrincipal = Math.max(0, rawPaid - lateFee);
     const availableBeforeFee = rawPaid + currentCarryOver;
     const available = availableBeforeFee - lateFee;
 
@@ -176,11 +178,13 @@ export function calculateMemberCarryover(
 
     if (available >= targetAmount) {
       isPaidFully = true;
+      // หากจ่ายครบถ้วน ยอดส่วนเกิน (เกินจากยอดค้าง + ค่าปรับ + เป้าประจำสัปดาห์) จะถูกทบเป็นยอดบวก (+)
       carriedOut = available - targetAmount;
       deficit = 0;
     } else {
       isPaidFully = false;
-      carriedOut = availableBeforeFee - targetAmount; // ทบเฉพาะยอดค้างเงินต้น (ไม่รวมค่าปรับของสัปดาห์นี้) ไปยังสัปดาห์ถัดไป
+      // ยอดค่าปรับหากจ่ายแล้วจะไม่ทบอาทิตย์ถัดไป (นำเฉพาะเงินส่วนที่เหลือหลังชำระค่าปรับมาทบลบยอดค้าง)
+      carriedOut = effectivePaidForPrincipal + currentCarryOver - targetAmount;
       deficit = targetAmount - available;
     }
 

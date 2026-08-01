@@ -1333,7 +1333,7 @@ export default function App() {
                         </div>
                       </div>
                       <p className="text-[10px] text-slate-400 leading-relaxed">
-                        💡 เมื่อตั้งค่าปรับ ระบบจะคิดค่าปรับอัตโนมัติทุก 00:01 ของวันจันทร์ สำหรับสมาชิกที่มียอดค้างชำระยกมาจากสัปดาห์ก่อนหน้า (ยอดทบคือยอดที่จ่ายเกินทั้งค่าปรับและยอดรายอาทิตย์ • ค่าปรับจะไม่ทบเป็นยอดค้างของอาทิตย์ถัดไป)
+                        💡 เมื่อตั้งค่าปรับ ระบบจะคิดค่าปรับอัตโนมัติทุก 00:01 ของวันจันทร์ สำหรับสมาชิกที่มียอดค้างชำระยกมาจากสัปดาห์ก่อนหน้า (ยอดค่าปรับหากจ่ายแล้วจะไม่ทบอาทิตย์ถัดไป • ค้างจ่ายถ้าจ่ายครบแล้วจะหายไป ไม่เอาไปทบสัปดาห์อื่น • ยอดทบคือยอดที่จ่ายเกินทั้งค่าปรับและยอดรายอาทิตย์)
                       </p>
                     </div>
 
@@ -1457,7 +1457,7 @@ export default function App() {
                     <div className="bg-slate-950/40 border border-slate-800/60 rounded-xl p-3.5 text-xs text-slate-400 space-y-1">
                       <p className="font-bold text-slate-300">💡 ข้อมูลการตั้งค่าปัจจุบันของกลุ่ม</p>
                       <p>• ยอดส่งเป้าหมาย: <span className="text-emerald-400 font-mono font-bold">฿{activeGroup?.targetAmountPerMember.toLocaleString("th-TH")}</span> / คน / สัปดาห์</p>
-                      <p>• ค่าปรับจ่ายล่าช้า: <span className="text-rose-400 font-mono font-bold">฿{activeGroup?.lateFeePerWeek || 0}</span> / สัปดาห์ (คิดค่าปรับอัตโนมัติทุก 00:01 ของวันจันทร์ • ยอดทบคือยอดที่จ่ายเกินทั้งค่าปรับและยอดรายอาทิตย์ • ค่าปรับไม่ทบเป็นยอดค้างสัปดาห์ถัดไป{activeGroup?.lateFeeNote ? ` • ${activeGroup.lateFeeNote}` : ""})</p>
+                      <p>• ค่าปรับจ่ายล่าช้า: <span className="text-rose-400 font-mono font-bold">฿{activeGroup?.lateFeePerWeek || 0}</span> / สัปดาห์ (คิดค่าปรับอัตโนมัติทุก 00:01 ของวันจันทร์ • ค่าปรับถ้าจ่ายแล้วเงินค่าปรับจะหายไป ไม่เอาไปทบสัปดาห์อื่น • ยอดทบคือยอดที่จ่ายเกินทั้งค่าปรับและยอดรายอาทิตย์{activeGroup?.lateFeeNote ? ` • ${activeGroup.lateFeeNote}` : ""})</p>
                       {activeGroup?.coLeaders && activeGroup.coLeaders.length > 0 && (
                         <p>• หัวหน้าก๊วนร่วม: <span className="text-amber-400 font-bold">{activeGroup.coLeaders.join(", ")}</span></p>
                       )}
