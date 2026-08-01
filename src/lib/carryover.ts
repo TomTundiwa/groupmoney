@@ -163,11 +163,12 @@ export function calculateMemberCarryover(
       return txDate >= spec.startDate && txDate <= spec.endDate;
     });
 
-    // ค่าปรับจ่ายล่าช้าคิดเฉพาะสมาชิกที่มียอดค้างชำระยกมาจากสัปดาห์ก่อนหน้า และหากสัปดาห์นี้จ่ายจนครบแล้ว ค่าปรับจะหายไป
+    // ค่าปรับจ่ายล่าช้าคิดเฉพาะสมาชิกที่มียอดค้างชำระยกมาจากสัปดาห์ก่อนหน้า และหากสัปดาห์นี้จ่ายส่วนต่างที่ค้างมาครบแล้ว (หรือจ่ายจนครบเป้าหมาย) ค่าปรับจะหายไปทันที
     const rawPaid = txsInWeek.reduce((sum, tx) => sum + tx.amount, 0);
     const availableBeforeFee = rawPaid + currentCarryOver;
+    const hasPaidOverdueDifference = currentCarryOver < 0 && rawPaid >= Math.abs(currentCarryOver);
     const isPaidFullyBeforeFee = availableBeforeFee >= targetAmount;
-    const lateFee = (!isFirstWeek && currentCarryOver < 0 && !isPaidFullyBeforeFee && lateFeePerWeek > 0) ? lateFeePerWeek : 0;
+    const lateFee = (!isFirstWeek && currentCarryOver < 0 && !hasPaidOverdueDifference && !isPaidFullyBeforeFee && lateFeePerWeek > 0) ? lateFeePerWeek : 0;
     const available = availableBeforeFee - lateFee;
 
     let isPaidFully = false;
@@ -180,7 +181,7 @@ export function calculateMemberCarryover(
       deficit = 0;
     } else {
       isPaidFully = false;
-      carriedOut = available - targetAmount; // Carry over the negative deficit
+      carriedOut = availableBeforeFee - targetAmount; // ทบเฉพาะยอดค้างเงินต้น (ไม่รวมค่าปรับของสัปดาห์นี้) ไปยังสัปดาห์ถัดไป
       deficit = targetAmount - available;
     }
 

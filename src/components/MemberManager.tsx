@@ -231,7 +231,7 @@ export default function MemberManager({
             <span>
               <strong className="text-rose-400">กฎค่าปรับจ่ายล่าช้า:</strong> ฿{lateFeePerWeek.toLocaleString("th-TH")} / สัปดาห์
               <span className="text-rose-200 ml-1">
-                (คิดค่าปรับอัตโนมัติทุก 00:01 ของวันจันทร์ สำหรับผู้ที่มียอดค้างชำระจากสัปดาห์ก่อนหน้า ถ้าสัปดาห์นี้จ่ายครบแล้วค่าปรับจะหายไป)
+                (คิดค่าปรับอัตโนมัติทุก 00:01 ของวันจันทร์ สำหรับผู้ที่มียอดค้างชำระจากสัปดาห์ก่อนหน้า ถ้าจ่ายเงินส่วนต่างที่ค้างมาครบแล้วค่าปรับจะหายไปทันที)
               </span>
               {lateFeeNote && (
                 <span className="text-rose-300 font-semibold block sm:inline sm:ml-1">
@@ -619,7 +619,7 @@ export default function MemberManager({
                   {selectedMember.carryover.currentWeekStatus.lateFeeThisWeek > 0 && (
                     <div className="bg-rose-500/10 border border-rose-500/25 text-rose-300 text-xs py-2 px-3 rounded-xl flex items-center gap-1.5 justify-center font-semibold">
                       <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
-                      <span>⚡ ถูกบวกค่าปรับจ่ายล่าช้าในสัปดาห์นี้: <strong className="text-rose-400 font-mono">+฿{selectedMember.carryover.currentWeekStatus.lateFeeThisWeek.toLocaleString("th-TH")}</strong></span>
+                      <span>⚡ ถูกบวกค่าปรับจ่ายล่าช้าในสัปดาห์นี้: <strong className="text-rose-400 font-mono">+฿{selectedMember.carryover.currentWeekStatus.lateFeeThisWeek.toLocaleString("th-TH")}</strong> <span className="text-[11px] font-normal text-rose-300/80">(ไม่ทบเป็นยอดค้างของสัปดาห์ถัดไป)</span></span>
                     </div>
                   )}
 
