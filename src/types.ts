@@ -18,6 +18,7 @@ export interface Member {
   nickname: string; // Friendly name for group tracking
   createdAt: string;
   initialCarryover?: number; // ยอดค้าง/ยอดสมทบยกมาตั้งต้น (ติดลบคือค้างจ่าย บวกคือจ่ายเกินทบมา)
+  customLateFee?: number; // ค่าปรับเฉพาะบุคคล (0 = ไม่ปรับ หรือกำหนดตัวเลขที่ต้องการ)
 }
 
 export interface Transaction {

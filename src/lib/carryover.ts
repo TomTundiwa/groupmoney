@@ -142,7 +142,8 @@ export function calculateMemberCarryover(
   targetAmount: number,
   groupCreatedAt: string,
   lateFeePerWeek: number = 0,
-  initialCarryover: number = 0
+  initialCarryover: number = 0,
+  customLateFee?: number
 ): MemberCarryoverResult {
   const memberTxs = transactions.filter((t) => t.memberId === memberId);
   const totalPaidAllTime = memberTxs.reduce((sum, t) => sum + t.amount, 0);
@@ -163,10 +164,11 @@ export function calculateMemberCarryover(
       return txDate >= spec.startDate && txDate <= spec.endDate;
     });
 
-    // ค่าปรับจ่ายล่าช้าคิดสำหรับสมาชิกที่มียอดค้างชำระยกมาจากสัปดาห์ก่อนหน้า (currentCarryOver < 0)
-    // ยอดค่าปรับหากจ่ายแล้วจะไม่ทบอาทิตย์ถัดไป และค่าปรับที่ยังไม่ได้จ่ายก็จะไม่ถูกนำไปทบเป็นยอดค้างในอาทิตย์ถัดไปเช่นกัน
+    // ค่าปรับจ่ายล่าช้าคิดสำหรับสมาชิกที่มียอดค้างชำระยกมา (currentCarryOver < 0)
+    // โดยถ้าระบุ customLateFee เฉพาะบุคคล จะใช้ยอดนั้นแทนค่าปรับของกลุ่ม (เช่น 0 = ยกเว้น)
     const rawPaid = txsInWeek.reduce((sum, tx) => sum + tx.amount, 0);
-    const lateFee = (!isFirstWeek && currentCarryOver < 0 && lateFeePerWeek > 0) ? lateFeePerWeek : 0;
+    const effectiveLateFee = (customLateFee !== undefined && customLateFee !== null && customLateFee !== "" as any) ? Number(customLateFee) : lateFeePerWeek;
+    const lateFee = (currentCarryOver < 0 && effectiveLateFee > 0 && (!isFirstWeek || initialCarryover < 0)) ? effectiveLateFee : 0;
     // เงินที่จ่ายในสัปดาห์นี้ หลังจากหักชำระค่าปรับ (ถ้ามี) แล้ว — เพื่อให้ค่าปรับที่จ่ายไปไม่ทบอาทิตย์ถัดไป
     const effectivePaidForPrincipal = Math.max(0, rawPaid - lateFee);
     const availableBeforeFee = rawPaid + currentCarryOver;

@@ -13,7 +13,7 @@ interface MemberManagerProps {
   groupCreatedAt: string;
   onAddMember: (name: string, nickname: string) => void;
   onDeleteMember: (id: string) => void;
-  onEditMember?: (id: string, name: string, nickname: string, newTotalPaid?: number) => void;
+  onEditMember?: (id: string, name: string, nickname: string, newTotalPaid?: number, initialCarryover?: number, customLateFee?: number) => void;
   onUpdateLateFee?: (lateFeePerWeek: number, lateFeeNote: string) => void;
   isLeader?: boolean;
   isGlobalLeader?: boolean;
@@ -51,12 +51,16 @@ export default function MemberManager({
   const [editName, setEditName] = useState("");
   const [editNickname, setEditNickname] = useState("");
   const [editTotalPaid, setEditTotalPaid] = useState<number | string>(0);
+  const [editInitialCarryover, setEditInitialCarryover] = useState<number | string>(0);
+  const [editCustomLateFee, setEditCustomLateFee] = useState<number | string>("");
 
   const handleStartEdit = (m: any) => {
     setEditingId(m.id);
     setEditName(m.name);
     setEditNickname(m.nickname);
     setEditTotalPaid(m.totalPaid || 0);
+    setEditInitialCarryover(m.initialCarryover || 0);
+    setEditCustomLateFee(m.customLateFee !== undefined && m.customLateFee !== null ? m.customLateFee : "");
   };
 
   const handleCancelEdit = () => {
@@ -64,17 +68,23 @@ export default function MemberManager({
     setEditName("");
     setEditNickname("");
     setEditTotalPaid(0);
+    setEditInitialCarryover(0);
+    setEditCustomLateFee("");
   };
 
   const handleSaveEdit = (id: string) => {
     if (!editNickname.trim()) return;
     if (onEditMember) {
       const parsedAmount = typeof editTotalPaid === "string" ? parseFloat(editTotalPaid) : editTotalPaid;
+      const parsedCarryover = typeof editInitialCarryover === "string" ? parseFloat(editInitialCarryover) : editInitialCarryover;
+      const parsedLateFee = editCustomLateFee === "" ? undefined : (typeof editCustomLateFee === "string" ? parseFloat(editCustomLateFee) : editCustomLateFee);
       onEditMember(
         id,
         editName.trim() || editNickname.trim(),
         editNickname.trim(),
-        isNaN(parsedAmount) ? 0 : parsedAmount
+        isNaN(parsedAmount) ? 0 : parsedAmount,
+        isNaN(parsedCarryover) ? 0 : parsedCarryover,
+        parsedLateFee !== undefined && !isNaN(parsedLateFee) ? parsedLateFee : undefined
       );
     }
     handleCancelEdit();
@@ -223,36 +233,16 @@ export default function MemberManager({
         )}
       </AnimatePresence>
 
-      {/* Late Fee Notice Card */}
+
+      {/* Concise Late Fee Rule Banner */}
       {lateFeePerWeek > 0 && (
-        <div className="mb-3 px-3.5 py-2.5 bg-rose-500/10 border border-rose-500/25 rounded-2xl flex items-center justify-between gap-2 text-xs font-sans text-rose-300">
-          <div className="flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
-            <span>
-              <strong className="text-rose-400">กฎค่าปรับจ่ายล่าช้า:</strong> ฿{lateFeePerWeek.toLocaleString("th-TH")} / สัปดาห์
-              <span className="text-rose-200 ml-1">
-                (คิดค่าปรับอัตโนมัติทุก 00:01 ของวันจันทร์ สำหรับผู้ที่มียอดค้างชำระจากสัปดาห์ก่อนหน้า • ยอดค่าปรับหากจ่ายแล้วจะไม่ทบอาทิตย์ถัดไป และป้ายแจ้งเตือนสีแดงจะหายไปเปลี่ยนเป็นสีเขียว • ค้างจ่ายถ้าจ่ายครบแล้วจะหายไป ไม่เอาไปทบสัปดาห์อื่น • ยอดทบคือยอดที่จ่ายเกินทั้งค่าปรับและยอดรายอาทิตย์)
-              </span>
-              {lateFeeNote && (
-                <span className="text-rose-300 font-semibold block sm:inline sm:ml-1">
-                  • หมายเหตุ: {lateFeeNote}
-                </span>
-              )}
-            </span>
-          </div>
-          {isLeader && onUpdateLateFee && (
-            <button
-              onClick={() => {
-                if (confirm("ต้องการยกเลิกการคิดค่าปรับ (ปรับเป็น 0 บาทไว้ก่อน) ใช่หรือไม่?")) {
-                  onUpdateLateFee(0, "");
-                }
-              }}
-              className="bg-rose-500/20 hover:bg-rose-500/30 text-rose-200 border border-rose-500/40 px-2.5 py-1 rounded-xl text-[11px] font-bold transition shrink-0 cursor-pointer flex items-center gap-1"
-              title="ปิดการคิดค่าปรับล่าช้าชั่วคราว"
-            >
-              <span>🔕 ยกเลิกค่าปรับไว้ก่อน</span>
-            </button>
-          )}
+        <div className="mb-3.5 bg-rose-500/10 border border-rose-500/25 text-rose-300 text-xs py-2 px-3.5 rounded-xl flex items-center gap-2 font-sans">
+          <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+          <span>
+            หากจ่ายช้าจะถูกปรับ{" "}
+            <strong className="text-rose-400 font-mono font-bold">฿{lateFeePerWeek.toLocaleString("th-TH")}</strong>{" "}
+            บาท คิดค่าปรับอัตโนมัติทุกๆวันจันทร์ เวลา 00:01 น.
+          </span>
         </div>
       )}
 
@@ -334,7 +324,7 @@ export default function MemberManager({
                 key={m.id}
                 className="flex flex-col gap-2 p-3 bg-slate-800/20 border border-emerald-500/30 rounded-2xl transition"
               >
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
                   <div>
                     <label className="block text-[9px] text-slate-400 mb-0.5">ชื่อเล่น</label>
                     <input
@@ -364,6 +354,28 @@ export default function MemberManager({
                       onChange={(e) => setEditTotalPaid(e.target.value)}
                       placeholder="ยอดโอนสะสม"
                       className="w-full px-2.5 py-1.5 bg-slate-900 border border-emerald-500/50 rounded-lg text-xs text-emerald-400 font-mono focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[9px] text-amber-400 font-semibold mb-0.5">ยอดค้างยกมาตั้งต้น (ติดลบ = ค้าง)</label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={editInitialCarryover}
+                      onChange={(e) => setEditInitialCarryover(e.target.value)}
+                      placeholder="เช่น -50"
+                      className="w-full px-2.5 py-1.5 bg-slate-900 border border-amber-500/50 rounded-lg text-xs text-amber-300 font-mono focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[9px] text-rose-400 font-semibold mb-0.5">ค่าปรับเฉพาะคน (ว่าง=กลุ่ม/0=ไม่ปรับ)</label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={editCustomLateFee}
+                      onChange={(e) => setEditCustomLateFee(e.target.value)}
+                      placeholder="ค่าปรับ (฿)"
+                      className="w-full px-2.5 py-1.5 bg-slate-900 border border-rose-500/50 rounded-lg text-xs text-rose-300 font-mono focus:outline-none focus:border-rose-500"
                     />
                   </div>
                 </div>
@@ -424,16 +436,10 @@ export default function MemberManager({
                           💰 ทบมาจากสัปดาห์ก่อน ฿{m.carryover.currentWeekStatus.carriedIn.toLocaleString("th-TH")}
                         </span>
                       )}
-                      {m.carryover.currentWeekStatus.lateFeeThisWeek > 0 && (
-                        m.carryover.currentWeekStatus.rawPaidThisWeek >= m.carryover.currentWeekStatus.lateFeeThisWeek ? (
-                          <span className="text-[9px] font-sans font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded w-fit flex items-center gap-1">
-                            ✓ จ่ายค่าปรับแล้ว ฿{m.carryover.currentWeekStatus.lateFeeThisWeek.toLocaleString("th-TH")}
-                          </span>
-                        ) : (
-                          <span className="text-[9px] font-sans font-bold text-rose-400 bg-rose-500/15 border border-rose-500/30 px-1.5 py-0.5 rounded w-fit flex items-center gap-1">
-                            ⚡ ค่าปรับล่าช้า +฿{m.carryover.currentWeekStatus.lateFeeThisWeek.toLocaleString("th-TH")}
-                          </span>
-                        )
+                      {m.carryover.currentWeekStatus.lateFeeThisWeek > 0 && m.carryover.currentWeekStatus.rawPaidThisWeek < m.carryover.currentWeekStatus.lateFeeThisWeek && (
+                        <span className="text-[9px] font-sans font-bold text-rose-400 bg-rose-500/15 border border-rose-500/30 px-1.5 py-0.5 rounded w-fit flex items-center gap-1">
+                          ⚡ ค่าปรับล่าช้า +฿{m.carryover.currentWeekStatus.lateFeeThisWeek.toLocaleString("th-TH")}
+                        </span>
                       )}
                       {m.carryover.currentWeekStatus.carriedIn < 0 && m.carryover.currentWeekStatus.rawPaidThisWeek < Math.abs(m.carryover.currentWeekStatus.carriedIn) && (
                         <span className="text-[9px] font-sans text-rose-400 bg-rose-500/5 border border-rose-500/10 px-1.5 py-0.5 rounded w-fit flex items-center gap-1">
@@ -629,19 +635,11 @@ export default function MemberManager({
                     </div>
                   </div>
 
-                  {selectedMember.carryover.currentWeekStatus.lateFeeThisWeek > 0 && (
-                    selectedMember.carryover.currentWeekStatus.rawPaidThisWeek >= selectedMember.carryover.currentWeekStatus.lateFeeThisWeek ? (
-                      <div className="bg-emerald-500/10 border border-emerald-500/25 text-emerald-300 text-xs py-2 px-3 rounded-xl flex items-center gap-1.5 justify-center font-semibold">
-                        <span className="text-emerald-400">✓ ชำระค่าปรับจ่ายล่าช้าของสัปดาห์นี้แล้ว:</span>
-                        <strong className="text-emerald-400 font-mono">฿{selectedMember.carryover.currentWeekStatus.lateFeeThisWeek.toLocaleString("th-TH")}</strong>
-                        <span className="text-[11px] font-normal text-emerald-300/80">(ยอดค่าปรับจ่ายแล้ว ไม่ทบอาทิตย์ถัดไป)</span>
-                      </div>
-                    ) : (
-                      <div className="bg-rose-500/10 border border-rose-500/25 text-rose-300 text-xs py-2 px-3 rounded-xl flex items-center gap-1.5 justify-center font-semibold">
-                        <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
-                        <span>⚡ ถูกบวกค่าปรับจ่ายล่าช้าในสัปดาห์นี้: <strong className="text-rose-400 font-mono">+฿{selectedMember.carryover.currentWeekStatus.lateFeeThisWeek.toLocaleString("th-TH")}</strong> <span className="text-[11px] font-normal text-rose-300/80">(ยอดค่าปรับหากจ่ายแล้วจะไม่ทบอาทิตย์ถัดไป)</span></span>
-                      </div>
-                    )
+                  {selectedMember.carryover.currentWeekStatus.lateFeeThisWeek > 0 && selectedMember.carryover.currentWeekStatus.rawPaidThisWeek < selectedMember.carryover.currentWeekStatus.lateFeeThisWeek && (
+                    <div className="bg-rose-500/10 border border-rose-500/25 text-rose-300 text-xs py-2 px-3 rounded-xl flex items-center gap-1.5 justify-center font-semibold">
+                      <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                      <span>⚡ ถูกบวกค่าปรับจ่ายล่าช้าในสัปดาห์นี้: <strong className="text-rose-400 font-mono">+฿{selectedMember.carryover.currentWeekStatus.lateFeeThisWeek.toLocaleString("th-TH")}</strong></span>
+                    </div>
                   )}
 
                   {selectedMember.isPaidFully ? (
@@ -652,7 +650,7 @@ export default function MemberManager({
                       {selectedMember.carryover.currentWeekStatus.carriedOut > 0 && (
                         <div className="bg-blue-500/10 border border-blue-500/20 text-blue-300 text-[11px] py-1.5 px-3 rounded-xl flex items-center gap-1.5 justify-center">
                           <Coins className="w-4 h-4 text-amber-400" />
-                          <span>มียอดเงินโอนเกินสะสมทบไปสัปดาห์หน้า: <strong className="text-emerald-400">฿{selectedMember.carryover.currentWeekStatus.carriedOut.toLocaleString("th-TH")}</strong> <span className="text-[10px] text-blue-300/80">(ยอดจ่ายเกินทั้งค่าปรับและเป้ารายอาทิตย์)</span></span>
+                          <span>มียอดเงินโอนเกินสะสมทบไปสัปดาห์หน้า: <strong className="text-emerald-400">฿{selectedMember.carryover.currentWeekStatus.carriedOut.toLocaleString("th-TH")}</strong></span>
                         </div>
                       )}
                     </div>
@@ -717,23 +715,14 @@ export default function MemberManager({
                             </div>
                           </div>
 
-                          {week.lateFee > 0 && (
-                            week.rawPaid >= week.lateFee ? (
-                              <div className="bg-emerald-500/10 border border-emerald-500/25 text-emerald-300 text-[10px] py-1 px-2 rounded-lg flex items-center justify-between">
-                                <span className="flex items-center gap-1 font-semibold">
-                                  <span>✓ ค่าปรับจ่ายล่าช้า (ชำระแล้ว):</span>
-                                </span>
-                                <strong className="font-mono text-emerald-400">฿{week.lateFee}</strong>
-                              </div>
-                            ) : (
-                              <div className="bg-rose-500/10 border border-rose-500/25 text-rose-300 text-[10px] py-1 px-2 rounded-lg flex items-center justify-between">
-                                <span className="flex items-center gap-1 font-semibold">
-                                  <AlertTriangle className="w-3 h-3 text-rose-400" />
-                                  <span>ค่าปรับจ่ายล่าช้าในสัปดาห์นี้:</span>
-                                </span>
-                                <strong className="font-mono text-rose-400">+฿{week.lateFee}</strong>
-                              </div>
-                            )
+                          {week.lateFee > 0 && week.rawPaid < week.lateFee && (
+                            <div className="bg-rose-500/10 border border-rose-500/25 text-rose-300 text-[10px] py-1 px-2 rounded-lg flex items-center justify-between">
+                              <span className="flex items-center gap-1 font-semibold">
+                                <AlertTriangle className="w-3 h-3 text-rose-400" />
+                                <span>ค่าปรับจ่ายล่าช้าในสัปดาห์นี้:</span>
+                              </span>
+                              <strong className="font-mono text-rose-400">+฿{week.lateFee}</strong>
+                            </div>
                           )}
 
                           {week.carriedOut > 0 && (
