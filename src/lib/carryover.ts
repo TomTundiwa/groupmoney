@@ -152,6 +152,7 @@ export function calculateMemberCarryover(
   const weeksHistory: WeekCarryoverData[] = [];
 
   let currentCarryOver = initialCarryover;
+  let unpaidLateFeeCarry = 0;
 
   weekSpecs.forEach((spec, weekIdx) => {
     // Filter transactions for this member in this week
@@ -166,9 +167,17 @@ export function calculateMemberCarryover(
 
     // ค่าปรับจ่ายล่าช้าคิดสำหรับสมาชิกที่มียอดค้างชำระยกมา (currentCarryOver < 0)
     // โดยถ้าระบุ customLateFee เฉพาะบุคคล จะใช้ยอดนั้นแทนค่าปรับของกลุ่ม (เช่น 0 = ยกเว้น)
+    // หากยังไม่จ่ายค่าปรับในสัปดาห์ก่อนหน้า ค่าปรับจะเพิ่มขึ้นอีกสะสมจากสัปดาห์ที่ค้าง (unpaidLateFeeCarry + newLateFee)
     const rawPaid = txsInWeek.reduce((sum, tx) => sum + tx.amount, 0);
     const effectiveLateFee = (customLateFee !== undefined && customLateFee !== null && customLateFee !== "" as any) ? Number(customLateFee) : lateFeePerWeek;
-    const lateFee = (currentCarryOver < 0 && effectiveLateFee > 0 && (!isFirstWeek || initialCarryover < 0)) ? effectiveLateFee : 0;
+    const shouldChargeNewLateFee = currentCarryOver < 0 && effectiveLateFee > 0 && (!isFirstWeek || initialCarryover < 0);
+    const newLateFeeThisWeek = shouldChargeNewLateFee ? effectiveLateFee : 0;
+    const lateFee = unpaidLateFeeCarry + newLateFeeThisWeek;
+
+    // คำนวณยอดชำระที่ใช้ตัดค่าปรับ และค่าปรับที่ยังเหลือค้างอยู่
+    const paidTowardsLateFee = Math.min(rawPaid, lateFee);
+    const remainingUnpaidLateFee = lateFee - paidTowardsLateFee;
+
     // เงินที่จ่ายในสัปดาห์นี้ หลังจากหักชำระค่าปรับ (ถ้ามี) แล้ว — เพื่อให้ค่าปรับที่จ่ายไปไม่ทบอาทิตย์ถัดไป
     const effectivePaidForPrincipal = Math.max(0, rawPaid - lateFee);
     const availableBeforeFee = rawPaid + currentCarryOver;
@@ -183,11 +192,13 @@ export function calculateMemberCarryover(
       // หากจ่ายครบถ้วน ยอดส่วนเกิน (เกินจากยอดค้าง + ค่าปรับ + เป้าประจำสัปดาห์) จะถูกทบเป็นยอดบวก (+)
       carriedOut = available - targetAmount;
       deficit = 0;
+      unpaidLateFeeCarry = 0; // จ่ายครบถ้วนแล้ว ไม่มียอดค่าปรับค้างสะสม
     } else {
       isPaidFully = false;
-      // ยอดค่าปรับหากจ่ายแล้วจะไม่ทบอาทิตย์ถัดไป (นำเฉพาะเงินส่วนที่เหลือหลังชำระค่าปรับมาทบลบยอดค้าง)
+      // ยอดค่าปรับหากจ่ายแล้วจะไม่ทบอาทิตย์ถัดไป แต่ค่าปรับที่ยังไม่จ่ายจะสะสมเป็นค่าปรับเพิ่มขึ้นอีกในสัปดาห์ถัดไป
       carriedOut = effectivePaidForPrincipal + currentCarryOver - targetAmount;
       deficit = targetAmount - available;
+      unpaidLateFeeCarry = remainingUnpaidLateFee;
     }
 
     weeksHistory.push({
