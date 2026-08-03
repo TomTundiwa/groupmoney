@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Transaction, Member } from "../types";
-import { FileText, Plus, Search, Trash2, SlidersHorizontal, Sparkles, PlusCircle, Lock, Edit2, Check, X } from "lucide-react";
+import { FileText, Plus, Search, Trash2, SlidersHorizontal, Sparkles, PlusCircle, Lock, Edit2, Check, X, ChevronLeft, ChevronRight } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
 interface TransactionHistoryProps {
@@ -33,6 +33,10 @@ export default function TransactionHistory({
   const [showAddForm, setShowAddForm] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterType, setFilterType] = useState<"all" | "ai" | "manual">("all");
+
+  // Pagination State (หน้าต่างละ 5-7 อัน)
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState<number>(6);
 
   // Form states
   const [manualAmount, setManualAmount] = useState<number>(0);
@@ -105,6 +109,12 @@ export default function TransactionHistory({
 
     return matchesSearch && matchesType;
   });
+
+  // Pagination Math
+  const totalPages = Math.max(1, Math.ceil(filteredTxs.length / itemsPerPage));
+  const currentPageSafe = Math.min(currentPage, totalPages);
+  const startIndex = (currentPageSafe - 1) * itemsPerPage;
+  const paginatedTxs = filteredTxs.slice(startIndex, startIndex + itemsPerPage);
 
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6" id="transaction-history-section">
@@ -223,7 +233,10 @@ export default function TransactionHistory({
           <input
             type="text"
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={(e) => {
+              setSearchTerm(e.target.value);
+              setCurrentPage(1);
+            }}
             placeholder="ค้นหาชื่อเพื่อน, ช่องทาง หรือหมายเหตุ..."
             className="w-full pl-9 pr-4 py-2 bg-slate-800/40 border border-slate-700 rounded-xl text-xs text-slate-100 focus:outline-none focus:border-emerald-500 transition"
           />
@@ -232,7 +245,10 @@ export default function TransactionHistory({
         {/* Filter Type tabs */}
         <div className="flex bg-slate-800/50 p-1 rounded-xl border border-slate-800">
           <button
-            onClick={() => setFilterType("all")}
+            onClick={() => {
+              setFilterType("all");
+              setCurrentPage(1);
+            }}
             className={`px-3 py-1.5 rounded-lg text-xs font-medium font-sans transition ${
               filterType === "all" ? "bg-slate-700 text-emerald-400" : "text-slate-400 hover:text-slate-200"
             }`}
@@ -240,7 +256,10 @@ export default function TransactionHistory({
             ทั้งหมด
           </button>
           <button
-            onClick={() => setFilterType("ai")}
+            onClick={() => {
+              setFilterType("ai");
+              setCurrentPage(1);
+            }}
             className={`px-3 py-1.5 rounded-lg text-xs font-medium font-sans transition flex items-center gap-1 ${
               filterType === "ai" ? "bg-slate-700 text-emerald-400" : "text-slate-400 hover:text-slate-200"
             }`}
@@ -248,7 +267,10 @@ export default function TransactionHistory({
             <Sparkles className="w-3.5 h-3.5 text-emerald-400" /> AI สแกนสลิป
           </button>
           <button
-            onClick={() => setFilterType("manual")}
+            onClick={() => {
+              setFilterType("manual");
+              setCurrentPage(1);
+            }}
             className={`px-3 py-1.5 rounded-lg text-xs font-medium font-sans transition ${
               filterType === "manual" ? "bg-slate-700 text-emerald-400" : "text-slate-400 hover:text-slate-200"
             }`}
@@ -277,7 +299,7 @@ export default function TransactionHistory({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/40">
-              {filteredTxs.map((tx) => (
+              {paginatedTxs.map((tx) => (
                 editingTxId === tx.id ? (
                   <tr key={tx.id} className="bg-slate-800/30 border border-emerald-500/20 font-sans">
                     {/* Member Select */}
@@ -418,6 +440,79 @@ export default function TransactionHistory({
               ))}
             </tbody>
           </table>
+
+          {/* Pagination Controls (หน้าต่างละ 5-7 อัน) */}
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 mt-4 pt-4 border-t border-slate-800 text-xs font-sans">
+            <div className="flex items-center gap-2 text-slate-400">
+              <span>
+                แสดง <strong className="text-slate-200">{filteredTxs.length > 0 ? startIndex + 1 : 0}</strong> -{" "}
+                <strong className="text-slate-200">{Math.min(startIndex + itemsPerPage, filteredTxs.length)}</strong> จากทั้งหมด{" "}
+                <strong className="text-slate-200">{filteredTxs.length}</strong> รายการ
+              </span>
+              <span className="text-slate-600">|</span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px]">หน้าต่างละ:</span>
+                <select
+                  value={itemsPerPage}
+                  onChange={(e) => {
+                    setItemsPerPage(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-slate-200 text-xs focus:outline-none focus:border-emerald-500 cursor-pointer"
+                >
+                  <option value={5}>5 รายการ</option>
+                  <option value={6}>6 รายการ</option>
+                  <option value={7}>7 รายการ</option>
+                </select>
+              </div>
+            </div>
+
+            {totalPages > 1 && (
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPageSafe <= 1}
+                  className={`p-1.5 rounded-lg border flex items-center justify-center transition ${
+                    currentPageSafe <= 1
+                      ? "border-slate-800 text-slate-600 cursor-not-allowed"
+                      : "border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-white cursor-pointer"
+                  }`}
+                  title="หน้าก่อนหน้า"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+
+                <div className="flex items-center gap-1">
+                  {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                    <button
+                      key={page}
+                      onClick={() => setCurrentPage(page)}
+                      className={`w-7 h-7 rounded-lg font-mono text-xs font-semibold flex items-center justify-center transition ${
+                        page === currentPageSafe
+                          ? "bg-emerald-500 text-slate-950 shadow-sm font-bold"
+                          : "text-slate-400 hover:bg-slate-800 hover:text-slate-200 cursor-pointer"
+                      }`}
+                    >
+                      {page}
+                    </button>
+                  ))}
+                </div>
+
+                <button
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPageSafe >= totalPages}
+                  className={`p-1.5 rounded-lg border flex items-center justify-center transition ${
+                    currentPageSafe >= totalPages
+                      ? "border-slate-800 text-slate-600 cursor-not-allowed"
+                      : "border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-white cursor-pointer"
+                  }`}
+                  title="หน้าถัดไป"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
