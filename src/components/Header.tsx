@@ -1,7 +1,8 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { Group, Member, Transaction } from "../types";
 import { Plus, Users, Landmark, PiggyBank, Target, ChevronDown, Lock, Unlock, ShieldAlert, ShieldCheck, Trash2, Key, Copy, Check, Smartphone, RefreshCw, Laptop, Settings, Crown } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import { calculateMemberCarryover } from "../lib/carryover";
 
 interface HeaderProps {
   groups: Group[];
@@ -174,18 +175,54 @@ export default function Header({
     }
   };
 
-  // Calculate Stats
-  const totalCollected = transactions.reduce((sum, t) => sum + t.amount, 0);
-
-  // Group members payment tracking: a member is paid if they have any transaction
-  const paidMembersCount = members.filter((m) =>
-    transactions.some((t) => t.memberId === m.id)
-  ).length;
-
-  const totalMembers = members.length;
   const targetPerPerson = activeGroup?.targetAmountPerMember || 0;
+  const totalMembers = members.length;
   const totalTarget = totalMembers * targetPerPerson;
-  const progressPercent = totalTarget > 0 ? Math.min(Math.round((totalCollected / totalTarget) * 100), 100) : 0;
+
+  // Calculate detailed stats for each individual member
+  const memberStatsList = useMemo(() => {
+    return members.map((member) => {
+      const carryoverResult = calculateMemberCarryover(
+        member.id,
+        transactions,
+        targetPerPerson,
+        activeGroup?.createdAt || new Date().toISOString(),
+        activeGroup?.lateFeePerWeek || 0,
+        member.initialCarryover || 0,
+        member.customLateFee
+      );
+      return {
+        member,
+        totalPaid: carryoverResult.totalPaidAllTime,
+        isPaidFully: carryoverResult.currentWeekStatus.isPaidFully,
+        available: carryoverResult.currentWeekStatus.available,
+        deficit: carryoverResult.currentWeekStatus.deficit,
+      };
+    });
+  }, [members, transactions, targetPerPerson, activeGroup]);
+
+  // Total collected referenced by summing all members' individual paid amounts (+ unlinked transactions if any)
+  const totalCollected = useMemo(() => {
+    const fromMembers = memberStatsList.reduce((sum, m) => sum + m.totalPaid, 0);
+    const unlinked = transactions
+      .filter((t) => !members.some((m) => m.id === t.memberId))
+      .reduce((sum, t) => sum + t.amount, 0);
+    return fromMembers + unlinked;
+  }, [memberStatsList, transactions, members]);
+
+  // Group members payment tracking: members who have paid fully for the current week
+  const paidMembersCount = useMemo(() => {
+    return memberStatsList.filter((m) => m.isPaidFully).length;
+  }, [memberStatsList]);
+
+  // Progress percent based on everyone's contributions towards the group target for current week
+  const currentWeekProgressCollected = useMemo(() => {
+    return memberStatsList.reduce((sum, m) => sum + Math.min(targetPerPerson, Math.max(0, m.available)), 0);
+  }, [memberStatsList, targetPerPerson]);
+
+  const progressPercent = totalTarget > 0 
+    ? Math.min(Math.round((currentWeekProgressCollected / totalTarget) * 100), 100) 
+    : 0;
 
   return (
     <header className="w-full bg-slate-900 border-b border-slate-800 text-slate-100 py-6" id="app-header">

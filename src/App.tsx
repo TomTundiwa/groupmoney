@@ -5,7 +5,7 @@ import WeeklyChart from "./components/WeeklyChart";
 import SlipUploader from "./components/SlipUploader";
 import MemberManager from "./components/MemberManager";
 import TransactionHistory from "./components/TransactionHistory";
-import { HelpCircle, Landmark, Sparkles, ShieldAlert, ShieldCheck, Trash2, Key, Share2, Copy, Check, Settings, Crown, Users, Pencil, AlertTriangle } from "lucide-react";
+import { HelpCircle, Landmark, Sparkles, ShieldAlert, ShieldCheck, Trash2, Key, Share2, Copy, Check, Settings, Crown, Users, Pencil, AlertTriangle, RotateCcw } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { collection, doc, getDoc, setDoc, deleteDoc, updateDoc, onSnapshot, writeBatch, deleteField } from "firebase/firestore";
 import { db } from "./lib/firebase";
@@ -56,6 +56,8 @@ export default function App() {
 
   const [showMainDeleteConfirm, setShowMainDeleteConfirm] = useState(false);
   const [showMainDeleteSuccess, setShowMainDeleteSuccess] = useState(false);
+  const [showResetDataModal, setShowResetDataModal] = useState(false);
+  const [resetDataLoading, setResetDataLoading] = useState(false);
   const [copiedGroupPasscode, setCopiedGroupPasscode] = useState(false);
 
   // Group edit states for Leader
@@ -409,6 +411,43 @@ export default function App() {
           console.error("Error deleting member:", err);
         }
       }
+    }
+  };
+
+  const handleResetGroupData = async () => {
+    if (!activeGroupId) return;
+    setResetDataLoading(true);
+    try {
+      const groupTxs = transactions.filter((t) => t.groupId === activeGroupId);
+      const batch = writeBatch(db);
+
+      // 1. Delete all transactions in this group
+      groupTxs.forEach((tx) => {
+        batch.delete(doc(db, "transactions", tx.id));
+      });
+
+      // 2. Reset initialCarryover and customLateFee of all members in this group to 0
+      const groupMembers = members.filter((m) => m.groupId === activeGroupId);
+      groupMembers.forEach((m) => {
+        batch.update(doc(db, "members", m.id), {
+          initialCarryover: 0,
+        });
+      });
+
+      // 3. Reset group creation date to now so that weekly cycles start fresh from current week
+      batch.update(doc(db, "groups", activeGroupId), {
+        createdAt: new Date().toISOString(),
+      });
+
+      await batch.commit();
+      setShowResetDataModal(false);
+      setShowEditGroupModal(false);
+      alert("✓ ล้างประวัติสลิปและรีเซ็ตยอดเงินสะสมทั้งหมดเรียบร้อยแล้ว!\n(รายชื่อสมาชิกทุกคน ก๊วน และรหัสผ่านยังคงอยู่ตามเดิม)");
+    } catch (err) {
+      console.error("Error resetting group data:", err);
+      alert("เกิดข้อผิดพลาดในการล้างข้อมูล กรุณาลองใหม่อีกครั้ง");
+    } finally {
+      setResetDataLoading(false);
     }
   };
 
@@ -1217,6 +1256,76 @@ export default function App() {
         )}
       </AnimatePresence>
 
+      {/* Reset Group Data (Keep Members & Group) Confirmation Modal */}
+      <AnimatePresence>
+        {showResetDataModal && (
+          <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4 z-[60]">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-slate-900 border border-rose-500/40 rounded-3xl w-full max-w-md p-6 shadow-2xl text-slate-100"
+            >
+              <div className="flex items-center gap-3 mb-4 text-rose-400">
+                <div className="p-3 bg-rose-500/10 rounded-2xl border border-rose-500/20">
+                  <RotateCcw className="w-6 h-6 animate-spin-slow" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold font-sans text-rose-300">ล้างประวัติสลิปและยอดเงินทั้งหมด</h3>
+                  <p className="text-xs text-slate-400 font-sans">รีเซ็ตยอดเงินสะสมกลับเป็น 0 บาท</p>
+                </div>
+              </div>
+
+              <div className="space-y-3 bg-slate-950/80 border border-slate-800 rounded-2xl p-4 text-xs leading-relaxed text-slate-300 font-sans">
+                <p className="font-semibold text-rose-400 flex items-center gap-1.5">
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                  <span>คำเตือน: การกระทำนี้ไม่สามารถย้อนกลับได้</span>
+                </p>
+                <p>
+                  ระบบจะทำการลบประวัติสลิปการโอนเงินทั้งหมดในก๊วนนี้ (
+                  <span className="text-rose-300 font-bold">
+                    {transactions.filter((t) => t.groupId === activeGroupId).length} รายการ
+                  </span>
+                  ) และรีเซ็ตยอดเงินสะสมของสมาชิกทุกคนกลับเป็น <span className="text-amber-300 font-bold">0 บาท</span> เพื่อเริ่มรอบใหม่
+                </p>
+                <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-[11px] text-emerald-300">
+                  ✓ <span className="font-bold">ก๊วนยังอยู่</span>, <span className="font-bold">รายชื่อสมาชิกทุกคน ({activeMembers.length} คน) ยังอยู่</span>, และ <span className="font-bold">รหัสผ่านเดิมยังคงใช้งานได้ตามปกติ</span>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 mt-6">
+                <button
+                  type="button"
+                  onClick={() => setShowResetDataModal(false)}
+                  disabled={resetDataLoading}
+                  className="px-4 py-2.5 text-slate-400 hover:text-slate-200 transition text-xs font-medium cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="button"
+                  onClick={handleResetGroupData}
+                  disabled={resetDataLoading}
+                  className="px-5 py-2.5 bg-rose-500 hover:bg-rose-600 active:bg-rose-700 text-slate-100 rounded-xl font-bold text-xs transition shadow-lg shadow-rose-950/50 flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  {resetDataLoading ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-slate-100/30 border-t-slate-100 rounded-full animate-spin" />
+                      <span>กำลังล้างข้อมูล...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-4 h-4" />
+                      <span>ยืนยันล้างข้อมูลและยอดเงิน</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* Leader & Settings Group Modal (Group Info, Late Fee, and Leader Access) */}
       <AnimatePresence>
         {showEditGroupModal && (
@@ -1391,6 +1500,78 @@ export default function App() {
                           สมาชิกหรือแอดมินท่านอื่นสามารถนำรหัสนี้มากรอกที่ปุ่มฟันเฟือง เพื่อรับสิทธิ์หัวหน้ากลุ่มบนเครื่องของตนเอง
                         </p>
                       </div>
+                    </div>
+
+                    {/* SECTION 4: Member Management & Safe Deletion (Leader Only) */}
+                    <div className="bg-slate-950/60 border border-slate-800/80 rounded-2xl p-4 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-xs font-bold text-rose-400 uppercase tracking-wider flex items-center gap-1.5">
+                          <Users className="w-3.5 h-3.5 text-rose-400" />
+                          <span>4. จัดการและลบรายชื่อสมาชิกในก๊วน ({activeMembers.length} คน)</span>
+                        </h4>
+                      </div>
+                      <p className="text-[11px] text-slate-400 leading-relaxed font-sans">
+                        คุณสามารถลบรายชื่อสมาชิกที่ไม่ต้องการได้ที่นี่ (ย้ายปุ่มลบมาไว้ในเมนูตั้งค่านี้เพื่อป้องกันการเผลอกดลบจากหน้าหลัก)
+                      </p>
+
+                      {activeMembers.length === 0 ? (
+                        <p className="text-xs text-slate-500 italic text-center py-3">ยังไม่มีรายชื่อสมาชิกในกลุ่มนี้</p>
+                      ) : (
+                        <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                          {activeMembers.map((m) => {
+                            const memberTxsCount = transactions.filter((t) => t.memberId === m.id && t.groupId === activeGroupId).length;
+                            return (
+                              <div
+                                key={m.id}
+                                className="flex items-center justify-between p-2.5 bg-slate-900/80 border border-slate-800 rounded-xl hover:border-slate-700 transition"
+                              >
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                  <div className="w-7 h-7 rounded-lg bg-slate-800 border border-slate-700 flex items-center justify-center font-bold text-xs text-slate-300 shrink-0">
+                                    {m.nickname.charAt(0).toUpperCase()}
+                                  </div>
+                                  <div className="min-w-0">
+                                    <p className="text-xs font-bold text-slate-200 truncate">{m.nickname}</p>
+                                    <p className="text-[10px] text-slate-400 truncate">
+                                      {m.name} {memberTxsCount > 0 ? `• สลิป ${memberTxsCount} รายการ` : "• ยังไม่มีสลิป"}
+                                    </p>
+                                  </div>
+                                </div>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteMember(m.id)}
+                                  className="px-2.5 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/20 hover:border-rose-500/40 rounded-lg text-xs font-medium flex items-center gap-1.5 transition cursor-pointer shrink-0"
+                                  title={`ลบรายชื่อ ${m.nickname}`}
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  <span>ลบรายชื่อ</span>
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* SECTION 5: Reset All Slips & Money (Keep Group & Members) */}
+                    <div className="bg-rose-950/20 border border-rose-500/30 rounded-2xl p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-xs font-bold text-rose-400 uppercase tracking-wider flex items-center gap-1.5">
+                          <RotateCcw className="w-3.5 h-3.5 text-rose-400" />
+                          <span>5. ล้างประวัติสลิป & ยอดเงินทั้งหมด (คงสมาชิกและก๊วนไว้)</span>
+                        </h4>
+                      </div>
+                      <p className="text-[11px] text-slate-300 leading-relaxed font-sans">
+                        ลบประวัติสลิปการโอนเงินทั้งหมดในก๊วนนี้ ({transactions.filter((t) => t.groupId === activeGroupId).length} รายการ) และรีเซ็ตยอดเงินสะสมของสมาชิกทุกคนกลับเป็น 0 บาท <span className="text-amber-300 font-semibold">(โดยที่ก๊วน, รหัสผ่านเดิม, และรายชื่อสมาชิกทุกคนยังคงอยู่ตามปกติ)</span>
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setShowResetDataModal(true)}
+                        className="w-full py-2.5 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 hover:border-rose-500/50 text-rose-300 hover:text-rose-200 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer shadow-sm active:scale-[0.99]"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>ล้างประวัติสลิปและรีเซ็ตยอดเงินในก๊วนนี้</span>
+                      </button>
                     </div>
 
                     {editGroupError && (

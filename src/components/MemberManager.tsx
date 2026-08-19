@@ -107,7 +107,8 @@ export default function MemberManager({
       targetAmountPerMember,
       groupCreatedAt,
       lateFeePerWeek,
-      member.initialCarryover || 0
+      member.initialCarryover || 0,
+      member.customLateFee
     );
     const memberTxs = transactions.filter((t) => t.memberId === member.id);
 
@@ -120,6 +121,11 @@ export default function MemberManager({
       carryover: carryoverResult,
     };
   });
+
+  // Calculate sum of all members' finances
+  const totalAllMembersPaid = memberListWithStats.reduce((sum, m) => sum + m.totalPaid, 0);
+  const fullyPaidMembersCount = memberListWithStats.filter((m) => m.isPaidFully).length;
+  const totalDeficitThisWeek = memberListWithStats.reduce((sum, m) => sum + m.carryover.currentWeekStatus.deficit, 0);
 
   const filteredMembers = memberListWithStats.filter((m) => {
     const term = searchTerm.toLowerCase();
@@ -261,54 +267,64 @@ export default function MemberManager({
       </div>
 
       {/* Modern Sorting Options Segment Control */}
-      <div className="flex flex-wrap items-center gap-1.5 mb-4 text-[11px] font-sans text-slate-400 bg-slate-950/40 p-1.5 rounded-xl border border-slate-850">
-        <span className="pl-1 mr-1 text-slate-500 font-medium">เรียงลำดับ:</span>
-        <button
-          type="button"
-          onClick={() => setSortBy("default")}
-          className={`px-2.5 py-1 rounded-lg transition-all duration-150 cursor-pointer ${
-            sortBy === "default"
-              ? "bg-slate-800 text-slate-100 font-semibold shadow-sm border border-slate-700"
-              : "text-slate-400 border border-transparent hover:text-slate-200"
-          }`}
-        >
-          ทั่วไป
-        </button>
-        <button
-          type="button"
-          onClick={() => setSortBy("unpaid")}
-          className={`px-2.5 py-1 rounded-lg transition-all duration-150 cursor-pointer flex items-center gap-1 ${
-            sortBy === "unpaid"
-              ? "bg-amber-500/10 text-amber-400 font-semibold border border-amber-500/20"
-              : "text-slate-400 border border-transparent hover:text-slate-200"
-          }`}
-        >
-          <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-          ยังไม่จ่ายก่อน
-        </button>
-        <button
-          type="button"
-          onClick={() => setSortBy("paid")}
-          className={`px-2.5 py-1 rounded-lg transition-all duration-150 cursor-pointer flex items-center gap-1 ${
-            sortBy === "paid"
-              ? "bg-emerald-500/10 text-emerald-400 font-semibold border border-emerald-500/20"
-              : "text-slate-400 border border-transparent hover:text-slate-200"
-          }`}
-        >
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-          จ่ายแล้วก่อน
-        </button>
-        <button
-          type="button"
-          onClick={() => setSortBy("alphabetical")}
-          className={`px-2.5 py-1 rounded-lg transition-all duration-150 cursor-pointer ${
-            sortBy === "alphabetical"
-              ? "bg-slate-800 text-slate-100 font-semibold shadow-sm border border-slate-700"
-              : "text-slate-400 border border-transparent hover:text-slate-200"
-          }`}
-        >
-          ก-ฮ
-        </button>
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-3 text-[11px] font-sans">
+        <div className="flex flex-wrap items-center gap-1.5 bg-slate-950/40 p-1.5 rounded-xl border border-slate-850">
+          <span className="pl-1 mr-1 text-slate-500 font-medium">เรียงลำดับ:</span>
+          <button
+            type="button"
+            onClick={() => setSortBy("default")}
+            className={`px-2.5 py-1 rounded-lg transition-all duration-150 cursor-pointer ${
+              sortBy === "default"
+                ? "bg-slate-800 text-slate-100 font-semibold shadow-sm border border-slate-700"
+                : "text-slate-400 border border-transparent hover:text-slate-200"
+            }`}
+          >
+            ทั่วไป
+          </button>
+          <button
+            type="button"
+            onClick={() => setSortBy("unpaid")}
+            className={`px-2.5 py-1 rounded-lg transition-all duration-150 cursor-pointer flex items-center gap-1 ${
+              sortBy === "unpaid"
+                ? "bg-amber-500/10 text-amber-400 font-semibold border border-amber-500/20"
+                : "text-slate-400 border border-transparent hover:text-slate-200"
+            }`}
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+            ยังไม่จ่ายก่อน
+          </button>
+          <button
+            type="button"
+            onClick={() => setSortBy("paid")}
+            className={`px-2.5 py-1 rounded-lg transition-all duration-150 cursor-pointer flex items-center gap-1 ${
+              sortBy === "paid"
+                ? "bg-emerald-500/10 text-emerald-400 font-semibold border border-emerald-500/20"
+                : "text-slate-400 border border-transparent hover:text-slate-200"
+            }`}
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+            จ่ายแล้วก่อน
+          </button>
+          <button
+            type="button"
+            onClick={() => setSortBy("alphabetical")}
+            className={`px-2.5 py-1 rounded-lg transition-all duration-150 cursor-pointer ${
+              sortBy === "alphabetical"
+                ? "bg-slate-800 text-slate-100 font-semibold shadow-sm border border-slate-700"
+                : "text-slate-400 border border-transparent hover:text-slate-200"
+            }`}
+          >
+            ก-ฮ
+          </button>
+        </div>
+
+        {/* Aggregate sum badge for all members */}
+        {members.length > 0 && (
+          <div className="flex items-center gap-2 text-[10px] font-mono text-slate-400 bg-slate-900/60 px-3 py-1.5 rounded-xl border border-slate-800">
+            <span>ยอดสะสมทุกคน:</span>
+            <span className="text-emerald-400 font-bold">฿{totalAllMembersPaid.toLocaleString("th-TH", { minimumFractionDigits: 2 })}</span>
+          </div>
+        )}
       </div>
 
       {/* Member Items Grid/List */}
@@ -495,20 +511,10 @@ export default function MemberManager({
                           e.stopPropagation();
                           handleStartEdit(m);
                         }}
-                        className="p-1 text-slate-500 hover:text-emerald-400 rounded-lg hover:bg-emerald-500/10 transition"
+                        className="p-1 text-slate-500 hover:text-emerald-400 rounded-lg hover:bg-emerald-500/10 transition cursor-pointer"
                         title="แก้ไขชื่อและยอดเงินสะสม"
                       >
-                        <Edit2 className="w-3 h-3" />
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onDeleteMember(m.id);
-                        }}
-                        className="p-1 text-slate-500 hover:text-rose-400 rounded-lg hover:bg-rose-500/10 transition"
-                        title="ลบรายชื่อ"
-                      >
-                        <Trash2 className="w-3 h-3" />
+                        <Edit2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   ) : (
