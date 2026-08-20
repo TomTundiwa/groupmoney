@@ -143,7 +143,8 @@ export function calculateMemberCarryover(
   groupCreatedAt: string,
   lateFeePerWeek: number = 0,
   initialCarryover: number = 0,
-  customLateFee?: number
+  customLateFee?: number,
+  manualFine: number = 0
 ): MemberCarryoverResult {
   const memberTxs = transactions.filter((t) => t.memberId === memberId);
   const totalPaidAllTime = memberTxs.reduce((sum, t) => sum + t.amount, 0);
@@ -156,6 +157,7 @@ export function calculateMemberCarryover(
   weekSpecs.forEach((spec, weekIdx) => {
     // Filter transactions for this member in this week
     const isFirstWeek = weekIdx === 0;
+    const isCurrentWeek = weekIdx === weekSpecs.length - 1;
     const txsInWeek = memberTxs.filter((tx) => {
       const txDate = parseTxDateTime(tx);
       if (isFirstWeek) {
@@ -168,7 +170,10 @@ export function calculateMemberCarryover(
     // โดยถ้าระบุ customLateFee เฉพาะบุคคล จะใช้ยอดนั้นแทนค่าปรับของกลุ่ม (เช่น 0 = ยกเว้น)
     const rawPaid = txsInWeek.reduce((sum, tx) => sum + tx.amount, 0);
     const effectiveLateFee = (customLateFee !== undefined && customLateFee !== null && customLateFee !== "" as any) ? Number(customLateFee) : lateFeePerWeek;
-    const lateFee = (currentCarryOver < 0 && effectiveLateFee > 0 && (!isFirstWeek || initialCarryover < 0)) ? effectiveLateFee : 0;
+    const autoLateFee = (currentCarryOver < 0 && effectiveLateFee > 0 && (!isFirstWeek || initialCarryover < 0)) ? effectiveLateFee : 0;
+    
+    // รวมค่าปรับสั่งปรับทันทีโดยแอดมิน (manualFine) ในสัปดาห์ปัจจุบัน (ปรับได้เลยไม่ต้องรอ)
+    const lateFee = autoLateFee + (isCurrentWeek && manualFine > 0 ? manualFine : 0);
 
     // ยอดเงินที่มีในสัปดาห์นี้ = ยอดโอนสัปดาห์นี้ + ยอดยกมา (ติดลบคือหนี้) - ค่าปรับ
     const available = rawPaid + currentCarryOver - lateFee;

@@ -19,6 +19,7 @@ export interface Member {
   createdAt: string;
   initialCarryover?: number; // ยอดค้าง/ยอดสมทบยกมาตั้งต้น (ติดลบคือค้างจ่าย บวกคือจ่ายเกินทบมา)
   customLateFee?: number; // ค่าปรับเฉพาะบุคคล (0 = ไม่ปรับ หรือกำหนดตัวเลขที่ต้องการ)
+  manualFine?: number; // ค่าปรับที่แอดมินสั่งปรับทันทีในสัปดาห์ปัจจุบัน (บาท - ปรับได้เลยไม่ต้องรอ)
 }
 
 export interface Transaction {

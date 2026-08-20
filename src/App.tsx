@@ -7,8 +7,10 @@ import MemberManager from "./components/MemberManager";
 import TransactionHistory from "./components/TransactionHistory";
 import { HelpCircle, Landmark, Sparkles, ShieldAlert, ShieldCheck, Trash2, Key, Share2, Copy, Check, Settings, Crown, Users, Pencil, AlertTriangle, RotateCcw } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import { collection, doc, getDoc, setDoc, deleteDoc, updateDoc, onSnapshot, writeBatch, deleteField } from "firebase/firestore";
+import { collection, doc, getDoc, setDoc, deleteDoc, updateDoc, onSnapshot, writeBatch, deleteField, addDoc } from "firebase/firestore";
 import { db } from "./lib/firebase";
+import { restoreStarterGroupData } from "./lib/restoreStarterData";
+import { calculateMemberCarryover } from "./lib/carryover";
 
 export default function App() {
   const [groups, setGroups] = useState<Group[]>([]);
@@ -416,6 +418,10 @@ export default function App() {
 
   const handleResetGroupData = async () => {
     if (!activeGroupId) return;
+    if (!isLeader) {
+      alert("เฉพาะหัวหน้าก๊วนเท่านั้นที่สามารถรีเซ็ตหรือล้างข้อมูลยอดเงินได้");
+      return;
+    }
     setResetDataLoading(true);
     try {
       const groupTxs = transactions.filter((t) => t.groupId === activeGroupId);
@@ -451,14 +457,47 @@ export default function App() {
     }
   };
 
+  const handleRestoreStarterData = async () => {
+    if (!isLeader) {
+      alert("เฉพาะหัวหน้าก๊วนเท่านั้นที่สามารถคืนค่าระบบได้");
+      return;
+    }
+    try {
+      const res = await restoreStarterGroupData();
+      setCreatedGroupIds((prev) => {
+        const next = Array.from(new Set([...prev, res.groupId]));
+        localStorage.setItem("sb_created_groups", JSON.stringify(next));
+        return next;
+      });
+      setUnlockedGroupIds((prev) => {
+        const next = Array.from(new Set([...prev, res.groupId]));
+        localStorage.setItem("sb_unlocked_groups", JSON.stringify(next));
+        return next;
+      });
+      setActiveGroupId(res.groupId);
+      localStorage.setItem("sb_active_id", res.groupId);
+      setShowEditGroupModal(false);
+      setShowResetDataModal(false);
+      alert(`✓ คืนค่าระบบและกู้คืน "${res.groupName}" พร้อมสมาชิกทั้ง 7 คนและประวัติสลิปย้อนหลังครบถ้วนเรียบร้อยแล้ว!`);
+    } catch (err) {
+      console.error("Error restoring starter data:", err);
+      alert("เกิดข้อผิดพลาดในการคืนค่าระบบ กรุณาลองใหม่อีกครั้ง");
+    }
+  };
+
   const handleEditMember = async (
     memberId: string,
     name: string,
     nickname: string,
     newTotalPaid?: number,
     initialCarryover?: number,
-    customLateFee?: number
+    customLateFee?: number,
+    manualFine?: number
   ) => {
+    if (!isLeader) {
+      alert("เฉพาะหัวหน้าก๊วนเท่านั้นที่สามารถแก้ไขข้อมูลและยอดเงินของสมาชิกได้");
+      return;
+    }
     try {
       const updateData: any = { name, nickname };
       if (initialCarryover !== undefined) {
@@ -466,8 +505,15 @@ export default function App() {
       }
       if (customLateFee !== undefined && !isNaN(customLateFee)) {
         updateData.customLateFee = customLateFee;
-      } else {
+      } else if (customLateFee === undefined) {
         updateData.customLateFee = deleteField();
+      }
+      if (manualFine !== undefined) {
+        if (manualFine <= 0) {
+          updateData.manualFine = deleteField();
+        } else {
+          updateData.manualFine = manualFine;
+        }
       }
       await updateDoc(doc(db, "members", memberId), updateData);
 
@@ -530,8 +576,32 @@ export default function App() {
     }
   };
 
+  const handleInstantFine = async (memberId: string, fineAmount: number) => {
+    if (!isLeader) {
+      alert("เฉพาะหัวหน้าก๊วนเท่านั้นที่สามารถสั่งปรับเงินได้");
+      return;
+    }
+    try {
+      if (fineAmount <= 0) {
+        await updateDoc(doc(db, "members", memberId), {
+          manualFine: deleteField(),
+        });
+      } else {
+        await updateDoc(doc(db, "members", memberId), {
+          manualFine: fineAmount,
+        });
+      }
+    } catch (err) {
+      console.error("Error updating instant fine:", err);
+    }
+  };
+
   const handleUpdateGroupLateFee = async (lateFeePerWeek: number, lateFeeNote: string) => {
     if (!activeGroupId) return;
+    if (!isLeader) {
+      alert("เฉพาะหัวหน้าก๊วนเท่านั้นที่สามารถแก้ไขค่าปรับของกลุ่มได้");
+      return;
+    }
     try {
       await updateDoc(doc(db, "groups", activeGroupId), {
         lateFeePerWeek,
@@ -542,7 +612,102 @@ export default function App() {
     }
   };
 
+  // Adjust Group Total Money directly
+  const handleUpdateGroupTotalMoney = async (newTotal: number, reason?: string) => {
+    if (!activeGroupId) return;
+    if (!isLeader) {
+      alert("เฉพาะหัวหน้าก๊วนเท่านั้นที่สามารถปรับปรุงยอดเงินรวมของกลุ่มได้");
+      return;
+    }
+    try {
+      // Calculate current total
+      const fromMembers = activeMembers.reduce((sum, member) => {
+        const carry = calculateMemberCarryover(
+          member.id,
+          activeTransactions,
+          activeGroup?.targetAmountPerMember || 0,
+          activeGroup?.createdAt || new Date().toISOString(),
+          activeGroup?.lateFeePerWeek || 0,
+          member.initialCarryover || 0,
+          member.customLateFee,
+          member.manualFine || 0
+        );
+        return sum + carry.totalPaidAllTime;
+      }, 0);
+
+      const unlinked = activeTransactions
+        .filter((t) => !activeMembers.some((m) => m.id === t.memberId))
+        .reduce((sum, t) => sum + t.amount, 0);
+
+      const currentTotal = fromMembers + unlinked;
+      const difference = newTotal - currentTotal;
+
+      if (Math.abs(difference) < 0.01) {
+        return;
+      }
+
+      const newTx: Omit<Transaction, "id"> = {
+        groupId: activeGroupId,
+        memberId: "",
+        amount: difference,
+        date: new Date().toISOString().split("T")[0],
+        time: new Date().toTimeString().slice(0, 5),
+        bank: "กองกลาง (ปรับปรุงยอดรวม)",
+        senderNameText: reason || "ปรับปรุงยอดกองกลางโดยตรง",
+        isAiParsed: false,
+        notes: reason || `ปรับปรุงยอดรวมเงินกลุ่ม (เป้าหมายยอดรวม: ฿${newTotal.toLocaleString("th-TH")})`,
+        createdAt: new Date().toISOString(),
+      };
+
+      await addDoc(collection(db, "transactions"), newTx);
+    } catch (err) {
+      console.error("Error updating group total money:", err);
+      alert("เกิดข้อผิดพลาดในการปรับปรุงยอดเงินกลุ่ม กรุณาลองใหม่อีกครั้ง");
+    }
+  };
+
+  // Set all members in current group to have a 400 Baht deficit
+  const handleSetAllMembersDeficit400 = async () => {
+    if (!activeGroupId || !activeGroup || activeMembers.length === 0) return;
+    if (!isLeader) {
+      alert("เฉพาะหัวหน้าก๊วนเท่านั้นที่สามารถตั้งค่ายอดค้างชำระได้");
+      return;
+    }
+    try {
+      const target = activeGroup.targetAmountPerMember || 200;
+      for (const member of activeMembers) {
+        const carry = calculateMemberCarryover(
+          member.id,
+          activeTransactions,
+          target,
+          activeGroup.createdAt,
+          activeGroup.lateFeePerWeek || 0,
+          0,
+          member.customLateFee,
+          0
+        );
+        // We want current deficit = 400
+        // deficit = target - available => available = target - 400 (e.g. 200 - 400 = -200)
+        // available = totalPaidAllTime + initialCarryover
+        // initialCarryover = (target - 400) - carry.totalPaidAllTime
+        const targetCarryover = (target - 400) - carry.totalPaidAllTime;
+
+        await updateDoc(doc(db, "members", member.id), {
+          initialCarryover: targetCarryover,
+          manualFine: deleteField(),
+        });
+      }
+    } catch (err) {
+      console.error("Error setting all members deficit to 400:", err);
+      alert("เกิดข้อผิดพลาดในการตั้งค่ายอดค้าง กรุณาลองใหม่อีกครั้ง");
+    }
+  };
+
   const handleDeleteTransaction = async (txId: string) => {
+    if (!isLeader) {
+      alert("เฉพาะหัวหน้าก๊วนเท่านั้นที่สามารถลบรายการโอนเงินได้");
+      return;
+    }
     if (confirm("คุณแน่ใจหรือไม่ว่าต้องการลบรายการโอนเงินนี้?")) {
       try {
         await deleteDoc(doc(db, "transactions", txId));
@@ -561,6 +726,10 @@ export default function App() {
     date?: string,
     time?: string
   ) => {
+    if (!isLeader) {
+      alert("เฉพาะหัวหน้าก๊วนเท่านั้นที่สามารถแก้ไขรายการโอนเงินได้");
+      return;
+    }
     try {
       await updateDoc(doc(db, "transactions", txId), {
         amount,
@@ -620,6 +789,10 @@ export default function App() {
   };
 
   const handleAddManualTransaction = async (amount: number, memberId: string, bank: string, notes?: string) => {
+    if (!isLeader) {
+      alert("เฉพาะหัวหน้าก๊วนเท่านั้นที่สามารถบันทึกยอดเงินแบบกรอกมือได้");
+      return;
+    }
     const matchedMember = members.find((m) => m.id === memberId);
     const newTransaction: Transaction = {
       id: `t-${Date.now()}`,
@@ -940,6 +1113,7 @@ export default function App() {
         profileMemberId={profileMemberId}
         onUpdateProfile={handleUpdateProfile}
         onOpenGroupSettings={openGroupSettingsModal}
+        onUpdateGroupTotalMoney={handleUpdateGroupTotalMoney}
       />
 
       {/* Main Content Body */}
@@ -1098,7 +1272,9 @@ export default function App() {
                   onAddMember={handleAddMember}
                   onDeleteMember={handleDeleteMember}
                   onEditMember={handleEditMember}
+                  onInstantFine={handleInstantFine}
                   onUpdateLateFee={handleUpdateGroupLateFee}
+                  onSetAllDeficit400={handleSetAllMembersDeficit400}
                   isLeader={isLeader}
                   isGlobalLeader={isLeader}
                   profileMemberId={profileMemberId}
@@ -1152,6 +1328,17 @@ export default function App() {
                 <span>ค้นหาและเข้าร่วมก๊วน</span>
               </button>
             </form>
+
+            <div className="mt-4 w-full">
+              <button
+                type="button"
+                onClick={handleRestoreStarterData}
+                className="w-full py-3 bg-slate-900 hover:bg-slate-800/90 border border-emerald-500/30 hover:border-emerald-500/60 text-emerald-300 hover:text-emerald-200 rounded-2xl font-bold text-xs transition shadow-lg cursor-pointer flex items-center justify-center gap-2"
+              >
+                <RotateCcw className="w-4 h-4 text-emerald-400" />
+                <span>🔄 คืนค่าระบบ & กู้คืนก๊วนตัวอย่างเดิม (พร้อมสมาชิก 7 คน และสลิปย้อนหลัง)</span>
+              </button>
+            </div>
 
             <div className="mt-8 border-t border-slate-900 pt-6 w-full text-xs text-slate-500 font-sans">
               <p>💡 คำแนะนำสำหรับหัวหน้ากลุ่ม (Leader):</p>
@@ -1530,22 +1717,68 @@ export default function App() {
                                     {m.nickname.charAt(0).toUpperCase()}
                                   </div>
                                   <div className="min-w-0">
-                                    <p className="text-xs font-bold text-slate-200 truncate">{m.nickname}</p>
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <p className="text-xs font-bold text-slate-200 truncate">{m.nickname}</p>
+                                      {m.manualFine !== undefined && m.manualFine > 0 && (
+                                        <span className="text-[9px] font-sans font-bold text-rose-300 bg-rose-500/20 border border-rose-500/40 px-1.5 py-0.2 rounded shrink-0 animate-pulse">
+                                          ⚡ โดนปรับทันที ฿{m.manualFine}
+                                        </span>
+                                      )}
+                                      {m.customLateFee === 0 ? (
+                                        <span className="text-[9px] font-sans font-bold text-teal-400 bg-teal-500/10 border border-teal-500/25 px-1.5 py-0.2 rounded shrink-0">
+                                          🛡️ ปลอดค่าปรับ
+                                        </span>
+                                      ) : m.customLateFee !== undefined && m.customLateFee > 0 ? (
+                                        <span className="text-[9px] font-sans font-bold text-rose-300 bg-rose-500/10 border border-rose-500/25 px-1.5 py-0.2 rounded shrink-0">
+                                          ⚡ ปรับ ฿{m.customLateFee}/สัปดาห์
+                                        </span>
+                                      ) : null}
+                                    </div>
                                     <p className="text-[10px] text-slate-400 truncate">
                                       {m.name} {memberTxsCount > 0 ? `• สลิป ${memberTxsCount} รายการ` : "• ยังไม่มีสลิป"}
                                     </p>
                                   </div>
                                 </div>
 
-                                <button
-                                  type="button"
-                                  onClick={() => handleDeleteMember(m.id)}
-                                  className="px-2.5 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/20 hover:border-rose-500/40 rounded-lg text-xs font-medium flex items-center gap-1.5 transition cursor-pointer shrink-0"
-                                  title={`ลบรายชื่อ ${m.nickname}`}
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                  <span>ลบรายชื่อ</span>
-                                </button>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const defaultAmount = m.manualFine && m.manualFine > 0 ? String(m.manualFine) : String(activeGroup?.lateFeePerWeek || 20);
+                                      const inputVal = prompt(
+                                        `⚡ สั่งปรับเงินทันทีสำหรับ ${m.nickname} (บาท):\n(ยอดค่าปรับจะนำไปบวกเพิ่มในยอดที่ต้องชำระของสัปดาห์นี้ทันที ไม่ต้องรอรอบ)\n\n- ใส่จำนวนเงิน เช่น 20, 50, 100\n- ใส่ 0 หรือปล่อยว่างเพื่อ "ยกเลิกค่าปรับ"`,
+                                        defaultAmount
+                                      );
+                                      if (inputVal !== null) {
+                                        const trimmed = inputVal.trim();
+                                        const parsed = parseFloat(trimmed);
+                                        if (trimmed === "" || isNaN(parsed) || parsed <= 0) {
+                                          handleInstantFine(m.id, 0);
+                                        } else {
+                                          handleInstantFine(m.id, parsed);
+                                        }
+                                      }
+                                    }}
+                                    className={`px-2 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1 transition cursor-pointer ${
+                                      m.manualFine && m.manualFine > 0
+                                        ? "bg-rose-500/20 text-rose-300 border border-rose-500/40 hover:bg-rose-500/30"
+                                        : "bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30"
+                                    }`}
+                                    title="สั่งปรับเงินทันทีโดยแอดมินไม่ต้องรอ"
+                                  >
+                                    <AlertTriangle className="w-3 h-3 text-amber-400" />
+                                    <span>{m.manualFine && m.manualFine > 0 ? `ปรับ ฿${m.manualFine}` : "⚡ สั่งปรับทันที"}</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteMember(m.id)}
+                                    className="px-2.5 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/20 hover:border-rose-500/40 rounded-lg text-xs font-medium flex items-center gap-1.5 transition cursor-pointer shrink-0"
+                                    title={`ลบรายชื่อ ${m.nickname}`}
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                    <span>ลบรายชื่อ</span>
+                                  </button>
+                                </div>
                               </div>
                             );
                           })}
@@ -1571,6 +1804,27 @@ export default function App() {
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                         <span>ล้างประวัติสลิปและรีเซ็ตยอดเงินในก๊วนนี้</span>
+                      </button>
+                    </div>
+
+                    {/* SECTION 6: Restore Starter Group & History */}
+                    <div className="bg-emerald-950/25 border border-emerald-500/30 rounded-2xl p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
+                          <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>6. คืนค่าระบบก่อนล้างข้อมูล / กู้คืนก๊วนเริ่มต้น</span>
+                        </h4>
+                      </div>
+                      <p className="text-[11px] text-slate-300 leading-relaxed font-sans">
+                        คืนค่าก๊วนเดิม "ก๊วนเตะบอลวันเสาร์" พร้อมสมาชิกทั้ง 7 คน (ต้น, เอก, บอย, กอล์ฟ, นัท, ตั้ม, อาร์ม), ประวัติสลิปย้อนหลังครบทุกสัปดาห์, ยอดเงิน, และสิทธิ์แอดมินครบถ้วน
+                      </p>
+                      <button
+                        type="button"
+                        onClick={handleRestoreStarterData}
+                        className="w-full py-2.5 bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/35 hover:border-emerald-500/60 text-emerald-300 hover:text-emerald-200 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer shadow-sm active:scale-[0.99]"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" />
+                        <span>🔄 คืนค่าระบบเดิม & กู้คืนก๊วนตัวอย่างพร้อมสมาชิก 7 คน</span>
                       </button>
                     </div>
 

@@ -159,8 +159,8 @@ export default function TransactionHistory({
                   id="manual-member-select"
                 >
                   <option value="" disabled>-- เลือกรายชื่อเพื่อน --</option>
-                  {members.map((m) => (
-                    <option key={m.id} value={m.id}>
+                  {members.map((m, idx) => (
+                    <option key={m.id ? `manual-member-${m.id}-${idx}` : `manual-member-${idx}`} value={m.id}>
                       {m.nickname} ({m.name})
                     </option>
                   ))}
@@ -299,9 +299,9 @@ export default function TransactionHistory({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/40">
-              {paginatedTxs.map((tx) => (
+              {paginatedTxs.map((tx, txIdx) => (
                 editingTxId === tx.id ? (
-                  <tr key={tx.id} className="bg-slate-800/30 border border-emerald-500/20 font-sans">
+                  <tr key={tx.id ? `tx-edit-${tx.id}` : `tx-edit-${txIdx}`} className="bg-slate-800/30 border border-emerald-500/20 font-sans">
                     {/* Member Select */}
                     <td className="py-2 pr-2" colSpan={1}>
                       <select
@@ -310,8 +310,8 @@ export default function TransactionHistory({
                         className="w-full px-1.5 py-1 bg-slate-900 border border-slate-700 rounded text-xs text-slate-100 focus:outline-none focus:border-emerald-500"
                       >
                         <option value="">-- ไม่ระบุชื่อ --</option>
-                        {members.map((m) => (
-                          <option key={m.id} value={m.id}>
+                        {members.map((m, mIdx) => (
+                          <option key={m.id ? `edit-opt-${m.id}-${mIdx}` : `edit-opt-${mIdx}`} value={m.id}>
                             {m.nickname} ({m.name})
                           </option>
                         ))}
@@ -386,7 +386,7 @@ export default function TransactionHistory({
                     </td>
                   </tr>
                 ) : (
-                  <tr key={tx.id} className="hover:bg-slate-800/10 font-sans group">
+                  <tr key={tx.id ? `tx-row-${tx.id}` : `tx-row-${txIdx}`} className="hover:bg-slate-800/10 font-sans group">
                     <td className="py-3 pr-2">
                       <div className="flex items-center gap-1.5">
                         <span className="font-semibold text-slate-200">
@@ -485,7 +485,7 @@ export default function TransactionHistory({
                 <div className="flex items-center gap-1">
                   {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
                     <button
-                      key={page}
+                      key={`page-btn-${page}`}
                       onClick={() => setCurrentPage(page)}
                       className={`w-7 h-7 rounded-lg font-mono text-xs font-semibold flex items-center justify-center transition ${
                         page === currentPageSafe

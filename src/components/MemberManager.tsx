@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Member, Transaction } from "../types";
-import { Users, Plus, Search, ChevronRight, UserCheck, AlertTriangle, Sparkles, Trash2, Lock, Edit2, Check, X, Calendar, Clock, Landmark, CreditCard, Info, Award, ArrowRightLeft, Coins, History } from "lucide-react";
+import { Users, Plus, Search, ChevronRight, UserCheck, AlertTriangle, Sparkles, Trash2, Lock, Edit2, Check, X, Calendar, Clock, Landmark, CreditCard, Info, Award, ArrowRightLeft, Coins, History, Zap } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { calculateMemberCarryover, MemberCarryoverResult } from "../lib/carryover";
 
@@ -13,8 +13,10 @@ interface MemberManagerProps {
   groupCreatedAt: string;
   onAddMember: (name: string, nickname: string) => void;
   onDeleteMember: (id: string) => void;
-  onEditMember?: (id: string, name: string, nickname: string, newTotalPaid?: number, initialCarryover?: number, customLateFee?: number) => void;
+  onEditMember?: (id: string, name: string, nickname: string, newTotalPaid?: number, initialCarryover?: number, customLateFee?: number, manualFine?: number) => void;
+  onInstantFine?: (memberId: string, fineAmount: number) => void;
   onUpdateLateFee?: (lateFeePerWeek: number, lateFeeNote: string) => void;
+  onSetAllDeficit400?: () => Promise<void> | void;
   isLeader?: boolean;
   isGlobalLeader?: boolean;
   profileMemberId?: string;
@@ -32,7 +34,9 @@ export default function MemberManager({
   onAddMember,
   onDeleteMember,
   onEditMember,
+  onInstantFine,
   onUpdateLateFee,
+  onSetAllDeficit400,
   isLeader = false,
   isGlobalLeader = false,
   profileMemberId = "",
@@ -53,6 +57,7 @@ export default function MemberManager({
   const [editTotalPaid, setEditTotalPaid] = useState<number | string>(0);
   const [editInitialCarryover, setEditInitialCarryover] = useState<number | string>(0);
   const [editCustomLateFee, setEditCustomLateFee] = useState<number | string>("");
+  const [editManualFine, setEditManualFine] = useState<number | string>("");
 
   const handleStartEdit = (m: any) => {
     setEditingId(m.id);
@@ -61,6 +66,7 @@ export default function MemberManager({
     setEditTotalPaid(m.totalPaid || 0);
     setEditInitialCarryover(m.initialCarryover || 0);
     setEditCustomLateFee(m.customLateFee !== undefined && m.customLateFee !== null ? m.customLateFee : "");
+    setEditManualFine(m.manualFine !== undefined && m.manualFine !== null && m.manualFine > 0 ? m.manualFine : "");
   };
 
   const handleCancelEdit = () => {
@@ -70,6 +76,7 @@ export default function MemberManager({
     setEditTotalPaid(0);
     setEditInitialCarryover(0);
     setEditCustomLateFee("");
+    setEditManualFine("");
   };
 
   const handleSaveEdit = (id: string) => {
@@ -78,13 +85,15 @@ export default function MemberManager({
       const parsedAmount = typeof editTotalPaid === "string" ? parseFloat(editTotalPaid) : editTotalPaid;
       const parsedCarryover = typeof editInitialCarryover === "string" ? parseFloat(editInitialCarryover) : editInitialCarryover;
       const parsedLateFee = editCustomLateFee === "" ? undefined : (typeof editCustomLateFee === "string" ? parseFloat(editCustomLateFee) : editCustomLateFee);
+      const parsedFine = editManualFine === "" ? 0 : (typeof editManualFine === "string" ? parseFloat(editManualFine) : editManualFine);
       onEditMember(
         id,
         editName.trim() || editNickname.trim(),
         editNickname.trim(),
         isNaN(parsedAmount) ? 0 : parsedAmount,
         isNaN(parsedCarryover) ? 0 : parsedCarryover,
-        parsedLateFee !== undefined && !isNaN(parsedLateFee) ? parsedLateFee : undefined
+        parsedLateFee !== undefined && !isNaN(parsedLateFee) ? parsedLateFee : undefined,
+        isNaN(parsedFine) ? 0 : parsedFine
       );
     }
     handleCancelEdit();
@@ -108,7 +117,8 @@ export default function MemberManager({
       groupCreatedAt,
       lateFeePerWeek,
       member.initialCarryover || 0,
-      member.customLateFee
+      member.customLateFee,
+      member.manualFine || 0
     );
     const memberTxs = transactions.filter((t) => t.memberId === member.id);
 
@@ -167,7 +177,7 @@ export default function MemberManager({
 
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6" id="member-manager-section">
-      <div className="flex items-center justify-between border-b border-slate-800 pb-4 mb-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800 pb-4 mb-4 gap-2">
         <div className="flex flex-wrap items-center gap-2">
           <Users className="w-5 h-5 text-emerald-400" />
           <h2 className="text-lg font-sans font-bold text-slate-100">สมาชิกกลุ่ม ({members.length})</h2>
@@ -175,15 +185,32 @@ export default function MemberManager({
             <Clock className="w-3 h-3 text-emerald-400" /> รีเซ็ตทุกวันจันทร์ 00:01 น.
           </span>
         </div>
-        {isLeader && (
-          <button
-            onClick={() => setShowAddForm(!showAddForm)}
-            className="text-xs font-semibold text-emerald-400 hover:text-emerald-300 flex items-center gap-1 focus:outline-none cursor-pointer"
-            id="toggle-add-member-btn"
-          >
-            <Plus className="w-4 h-4" /> เพิ่มรายชื่อเพื่อน
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {isLeader && onSetAllDeficit400 && (
+            <button
+              type="button"
+              onClick={() => {
+                if (confirm("คุณต้องการปรับให้สมาชิกทุกคนในก๊วนมียอดค้างชำระเป็น 400 บาท ทันทีหรือไม่? (เฉพาะหัวหน้าก๊วน)")) {
+                  onSetAllDeficit400();
+                }
+              }}
+              className="text-xs font-semibold px-2.5 py-1.5 bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 hover:border-rose-500/50 text-rose-300 hover:text-rose-200 rounded-xl transition cursor-pointer flex items-center gap-1 shadow-sm"
+              title="ตั้งค่าให้สมาชิกทุกคนมียอดค้างชำระรอบนี้เท่ากับ 400 บาท (เฉพาะหัวหน้าก๊วน)"
+            >
+              <Zap className="w-3.5 h-3.5 text-amber-400" />
+              <span>ตั้งยอดค้างทุกคน ฿400</span>
+            </button>
+          )}
+          {isLeader && (
+            <button
+              onClick={() => setShowAddForm(!showAddForm)}
+              className="text-xs font-semibold text-emerald-400 hover:text-emerald-300 flex items-center gap-1 focus:outline-none cursor-pointer px-2.5 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 rounded-xl transition"
+              id="toggle-add-member-btn"
+            >
+              <Plus className="w-4 h-4" /> เพิ่มรายชื่อเพื่อน
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Inline Add Member Form */}
@@ -384,14 +411,57 @@ export default function MemberManager({
                     />
                   </div>
                   <div>
-                    <label className="block text-[9px] text-rose-400 font-semibold mb-0.5">ค่าปรับเฉพาะคน (ว่าง=กลุ่ม/0=ไม่ปรับ)</label>
+                    <div className="flex items-center justify-between mb-0.5">
+                      <label className="block text-[9px] text-rose-400 font-semibold">ค่าปรับเฉพาะคน (฿/สัปดาห์)</label>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setEditCustomLateFee("")}
+                          className="text-[8px] text-slate-400 hover:text-slate-200 bg-slate-800 px-1 rounded"
+                          title="ใช้ตามค่าปรับของกลุ่ม"
+                        >
+                          ตามกลุ่ม ({lateFeePerWeek}฿)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditCustomLateFee(0)}
+                          className="text-[8px] text-teal-400 hover:text-teal-300 bg-teal-950/60 border border-teal-500/30 px-1 rounded"
+                          title="ยกเว้นค่าปรับสำหรับคนนี้"
+                        >
+                          ปลอดค่าปรับ (0฿)
+                        </button>
+                      </div>
+                    </div>
                     <input
                       type="number"
                       step="any"
                       value={editCustomLateFee}
                       onChange={(e) => setEditCustomLateFee(e.target.value)}
-                      placeholder="ค่าปรับ (฿)"
+                      placeholder={`เว้นว่าง = ใช้ค่าปรับกลุ่ม (${lateFeePerWeek}฿)`}
                       className="w-full px-2.5 py-1.5 bg-slate-900 border border-rose-500/50 rounded-lg text-xs text-rose-300 font-mono focus:outline-none focus:border-rose-500"
+                    />
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between mb-0.5">
+                      <label className="block text-[9px] text-amber-400 font-semibold">⚡ สั่งปรับทันทีรอบนี้ (฿)</label>
+                      {editManualFine !== "" && Number(editManualFine) > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setEditManualFine("")}
+                          className="text-[8px] text-slate-400 hover:text-slate-200 bg-slate-800 px-1 rounded"
+                        >
+                          ยกเลิกค่าปรับ (0฿)
+                        </button>
+                      )}
+                    </div>
+                    <input
+                      type="number"
+                      step="any"
+                      min="0"
+                      value={editManualFine}
+                      onChange={(e) => setEditManualFine(e.target.value)}
+                      placeholder="เช่น 20, 50, 100"
+                      className="w-full px-2.5 py-1.5 bg-slate-900 border border-amber-500/50 rounded-lg text-xs text-amber-300 font-mono focus:outline-none focus:border-amber-500"
                     />
                   </div>
                 </div>
@@ -439,6 +509,20 @@ export default function MemberManager({
                           คุณ (Me)
                         </span>
                       )}
+                      {m.manualFine !== undefined && m.manualFine > 0 && (
+                        <span className="text-[9px] font-sans font-bold text-rose-300 bg-rose-500/20 border border-rose-500/40 px-1.5 py-0.2 rounded shrink-0 flex items-center gap-0.5 animate-pulse" title={`แอดมินสั่งปรับทันที ฿${m.manualFine}`}>
+                          <Zap className="w-2.5 h-2.5 text-rose-400" /> ปรับทันที ฿{m.manualFine}
+                        </span>
+                      )}
+                      {m.customLateFee === 0 ? (
+                        <span className="text-[9px] font-sans font-semibold text-teal-400 bg-teal-500/10 border border-teal-500/25 px-1.5 py-0.2 rounded shrink-0" title="สมาชิกท่านนี้ได้รับการยกเว้นค่าปรับ">
+                          🛡️ ปลอดค่าปรับ
+                        </span>
+                      ) : m.customLateFee !== undefined && m.customLateFee > 0 ? (
+                        <span className="text-[9px] font-sans font-semibold text-rose-300 bg-rose-500/10 border border-rose-500/25 px-1.5 py-0.2 rounded shrink-0" title={`ค่าปรับเฉพาะบุคคล ฿${m.customLateFee}/สัปดาห์`}>
+                          ⚡ ปรับเฉพาะคน ฿{m.customLateFee}
+                        </span>
+                      ) : null}
                       {m.name !== m.nickname && (
                         <p className="text-[10px] text-slate-500 truncate">({m.name})</p>
                       )}
@@ -452,9 +536,9 @@ export default function MemberManager({
                           💰 ทบมาจากสัปดาห์ก่อน ฿{m.carryover.currentWeekStatus.carriedIn.toLocaleString("th-TH")}
                         </span>
                       )}
-                      {m.carryover.currentWeekStatus.lateFeeThisWeek > 0 && m.carryover.currentWeekStatus.rawPaidThisWeek < m.carryover.currentWeekStatus.lateFeeThisWeek && (
+                      {m.carryover.currentWeekStatus.lateFeeThisWeek > 0 && !m.isPaidFully && (
                         <span className="text-[9px] font-sans font-bold text-rose-400 bg-rose-500/15 border border-rose-500/30 px-1.5 py-0.5 rounded w-fit flex items-center gap-1">
-                          ⚡ ค่าปรับล่าช้า +฿{m.carryover.currentWeekStatus.lateFeeThisWeek.toLocaleString("th-TH")}
+                          ⚡ มีค่าปรับล่าช้า +฿{m.carryover.currentWeekStatus.lateFeeThisWeek.toLocaleString("th-TH")}
                         </span>
                       )}
                       {m.carryover.currentWeekStatus.carriedIn < 0 && m.carryover.currentWeekStatus.rawPaidThisWeek < Math.abs(m.carryover.currentWeekStatus.carriedIn) && (
@@ -484,7 +568,7 @@ export default function MemberManager({
                         </span>
                       )}
                     </div>
-                  ) : m.carryover.currentWeekStatus.lateFeeThisWeek > 0 && m.carryover.currentWeekStatus.rawPaidThisWeek < m.carryover.currentWeekStatus.lateFeeThisWeek ? (
+                  ) : m.carryover.currentWeekStatus.lateFeeThisWeek > 0 && !m.isPaidFully ? (
                     <div className="flex flex-col items-end gap-0.5">
                       <span className="text-[9px] font-sans font-bold text-rose-400 bg-rose-500/15 border border-rose-500/30 px-2.5 py-0.5 rounded-full flex items-center gap-1">
                         <AlertTriangle className="w-3 h-3 text-rose-400" />
@@ -505,7 +589,38 @@ export default function MemberManager({
                   )}
 
                   {isLeader ? (
-                    <div className="flex items-center gap-0.5 border-l border-slate-800 pl-1.5 ml-1">
+                    <div className="flex items-center gap-1 border-l border-slate-800 pl-1.5 ml-1">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const defaultAmt = m.manualFine && m.manualFine > 0 ? String(m.manualFine) : String(lateFeePerWeek || 20);
+                          const inputVal = prompt(
+                            `⚡ สั่งปรับเงินทันทีสำหรับ ${m.nickname} (บาท):\n(ยอดค่าปรับจะนำไปคิดในยอดที่ต้องชำระของสัปดาห์นี้ทันทีโดยไม่ต้องรอ)\n\n- ใส่จำนวนเงิน เช่น 20, 50, 100\n- ใส่ 0 เพื่อยกเลิกค่าปรับ`,
+                            defaultAmt
+                          );
+                          if (inputVal !== null) {
+                            const trimmed = inputVal.trim();
+                            const parsed = parseFloat(trimmed);
+                            if (onInstantFine) {
+                              if (trimmed === "" || isNaN(parsed) || parsed <= 0) {
+                                onInstantFine(m.id, 0);
+                              } else {
+                                onInstantFine(m.id, parsed);
+                              }
+                            }
+                          }
+                        }}
+                        className={`px-1.5 py-1 rounded-lg transition cursor-pointer flex items-center gap-0.5 text-[10px] font-bold ${
+                          m.manualFine && m.manualFine > 0
+                            ? "bg-rose-500/25 text-rose-300 border border-rose-500/50 hover:bg-rose-500/40 shadow-sm"
+                            : "text-amber-400/90 hover:text-amber-300 hover:bg-amber-500/10 border border-amber-500/20"
+                        }`}
+                        title={m.manualFine && m.manualFine > 0 ? `กำลังโดนปรับทันที ฿${m.manualFine} (คลิกเพื่อแก้หรือยกเลิก)` : "⚡ สั่งปรับเงินทันทีไม่ต้องรอ"}
+                      >
+                        <Zap className="w-3 h-3 text-amber-400" />
+                        <span>{m.manualFine && m.manualFine > 0 ? `฿${m.manualFine}` : "ปรับ"}</span>
+                      </button>
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -744,6 +859,237 @@ export default function MemberManager({
                       );
                     })}
                   </div>
+                </div>
+
+                {/* Instant Admin Fine (ปรับได้ทันทีไม่ต้องรอ) */}
+                <div className="bg-slate-950/50 border border-rose-500/30 rounded-2xl p-4 space-y-3 text-xs shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-bold text-rose-300 flex items-center gap-1.5 font-sans">
+                      <Zap className="w-4 h-4 text-rose-400" />
+                      <span>⚡ สั่งปรับเงินทันทีโดยแอดมิน (Instant Fine - ปรับได้เลยไม่ต้องรอ)</span>
+                    </h4>
+                    {selectedMember.manualFine !== undefined && selectedMember.manualFine > 0 ? (
+                      <span className="text-[10px] font-sans font-bold text-rose-300 bg-rose-500/20 border border-rose-500/40 px-2.5 py-0.5 rounded-full flex items-center gap-1 animate-pulse">
+                        <AlertTriangle className="w-3 h-3 text-rose-400" /> ปรับทันที ฿{selectedMember.manualFine}
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-sans font-medium text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded-full">
+                        ไม่มีคำสั่งปรับทันที
+                      </span>
+                    )}
+                  </div>
+
+                  <p className="text-slate-400 text-[11px] leading-relaxed font-sans">
+                    {selectedMember.manualFine !== undefined && selectedMember.manualFine > 0
+                      ? `สมาชิกท่านนี้กำลังถูกสั่งปรับทันทีจำนวน ฿${selectedMember.manualFine} ซึ่งถูกนำไปรวมในยอดที่ต้องชำระสัปดาห์นี้แล้ว`
+                      : `แอดมินสามารถกดปุ่มสั่งปรับเงิน ${selectedMember.nickname} ได้ทันทีโดยไม่ต้องรอให้จบสัปดาห์ ยอดค่าปรับจะถูกนำไปบวกเพิ่มในยอดที่ต้องชำระของสัปดาห์นี้ทันที`}
+                  </p>
+
+                  {isLeader && (
+                    <div className="pt-2 border-t border-slate-800/80 space-y-2">
+                      <p className="text-[10px] font-semibold text-slate-300 font-sans">
+                        ⚡ ปุ่มลัดสั่งปรับทันที (ไม่ต้องรอรอบ):
+                      </p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const amount = lateFeePerWeek > 0 ? lateFeePerWeek : 20;
+                            if (onInstantFine) onInstantFine(selectedMember.id, amount);
+                          }}
+                          className="px-3 py-1.5 bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 rounded-xl text-xs font-semibold transition cursor-pointer flex items-center gap-1"
+                        >
+                          <Zap className="w-3 h-3 text-amber-400" />
+                          <span>ปรับ +฿{lateFeePerWeek > 0 ? lateFeePerWeek : 20} (ตามเรท)</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (onInstantFine) onInstantFine(selectedMember.id, 50);
+                          }}
+                          className="px-3 py-1.5 bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 rounded-xl text-xs font-semibold transition cursor-pointer flex items-center gap-1"
+                        >
+                          <Zap className="w-3 h-3 text-amber-400" />
+                          <span>ปรับ +฿50</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (onInstantFine) onInstantFine(selectedMember.id, 100);
+                          }}
+                          className="px-3 py-1.5 bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 rounded-xl text-xs font-semibold transition cursor-pointer flex items-center gap-1"
+                        >
+                          <Zap className="w-3 h-3 text-amber-400" />
+                          <span>ปรับ +฿100</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const inputVal = prompt(
+                              `ระบุจำนวนเงินที่ต้องการสั่งปรับทันทีสำหรับ ${selectedMember.nickname} (บาท):`,
+                              selectedMember.manualFine && selectedMember.manualFine > 0 ? String(selectedMember.manualFine) : "20"
+                            );
+                            if (inputVal !== null) {
+                              const parsed = parseFloat(inputVal.trim());
+                              if (onInstantFine) {
+                                if (inputVal.trim() === "" || isNaN(parsed) || parsed <= 0) {
+                                  onInstantFine(selectedMember.id, 0);
+                                } else {
+                                  onInstantFine(selectedMember.id, parsed);
+                                }
+                              }
+                            }
+                          }}
+                          className="px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-xl text-xs font-semibold transition cursor-pointer flex items-center gap-1"
+                        >
+                          <Edit2 className="w-3 h-3" />
+                          <span>กำหนดเอง...</span>
+                        </button>
+
+                        {selectedMember.manualFine !== undefined && selectedMember.manualFine > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (onInstantFine) onInstantFine(selectedMember.id, 0);
+                            }}
+                            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-xl text-xs font-semibold transition cursor-pointer flex items-center gap-1"
+                          >
+                            <X className="w-3 h-3 text-slate-400" />
+                            <span>ยกเลิกค่าปรับ (฿0)</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Custom Late Fee Management for this Member */}
+                <div className="bg-slate-950/40 border border-slate-800 rounded-2xl p-4 space-y-3 text-xs">
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-bold text-slate-200 flex items-center gap-1.5 font-sans">
+                      <AlertTriangle className="w-4 h-4 text-amber-400" />
+                      <span>การตั้งค่าค่าปรับเฉพาะบุคคล (Custom Late Fee)</span>
+                    </h4>
+                    {selectedMember.customLateFee === 0 ? (
+                      <span className="text-[10px] font-sans font-bold text-teal-400 bg-teal-500/10 border border-teal-500/30 px-2 py-0.5 rounded-full">
+                        🛡️ ปลอดค่าปรับ (฿0)
+                      </span>
+                    ) : selectedMember.customLateFee !== undefined && selectedMember.customLateFee > 0 ? (
+                      <span className="text-[10px] font-sans font-bold text-rose-300 bg-rose-500/10 border border-rose-500/30 px-2 py-0.5 rounded-full">
+                        ⚡ ปรับ ฿{selectedMember.customLateFee}/สัปดาห์
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-sans font-medium text-slate-400 bg-slate-800/80 border border-slate-700 px-2 py-0.5 rounded-full">
+                        ใช้ตามก๊วน (฿{lateFeePerWeek}/สัปดาห์)
+                      </span>
+                    )}
+                  </div>
+
+                  <p className="text-slate-400 text-[11px] leading-relaxed font-sans">
+                    {selectedMember.customLateFee === 0
+                      ? `สมาชิกท่านนี้ได้รับการยกเว้นค่าปรับ (เมื่อมียอดค้างชำระในสัปดาห์ถัดไปจะไม่ถูกบวกค่าปรับ)`
+                      : selectedMember.customLateFee !== undefined && selectedMember.customLateFee > 0
+                      ? `สมาชิกท่านนี้ถูกตั้งค่าปรับพิเศษไว้ที่ ฿${selectedMember.customLateFee} ต่อสัปดาห์ (แทนค่าปรับเริ่มต้นของก๊วน ฿${lateFeePerWeek})`
+                      : `ปัจจุบันสมาชิกท่านนี้คิดค่าปรับตามอัตรามาตรฐานของก๊วน ฿${lateFeePerWeek} ต่อสัปดาห์`}
+                  </p>
+
+                  {isLeader && (
+                    <div className="pt-2 border-t border-slate-800/60 space-y-2">
+                      <p className="text-[10px] font-semibold text-slate-300 font-sans">
+                        ⚙️ สิทธิ์หัวหน้า: ปรับเปลี่ยนค่าปรับสำหรับ {selectedMember.nickname} ได้ทันที:
+                      </p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (onEditMember) {
+                              onEditMember(
+                                selectedMember.id,
+                                selectedMember.name,
+                                selectedMember.nickname,
+                                selectedMember.totalPaid,
+                                selectedMember.initialCarryover,
+                                undefined
+                              );
+                            }
+                          }}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition cursor-pointer flex items-center gap-1 ${
+                            selectedMember.customLateFee === undefined
+                              ? "bg-slate-700 text-slate-100 border border-slate-600 shadow-sm"
+                              : "bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800 hover:border-slate-700"
+                          }`}
+                        >
+                          <span>ตามก๊วน ({lateFeePerWeek}฿)</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (onEditMember) {
+                              onEditMember(
+                                selectedMember.id,
+                                selectedMember.name,
+                                selectedMember.nickname,
+                                selectedMember.totalPaid,
+                                selectedMember.initialCarryover,
+                                0
+                              );
+                            }
+                          }}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition cursor-pointer flex items-center gap-1 ${
+                            selectedMember.customLateFee === 0
+                              ? "bg-teal-500 text-slate-950 font-bold shadow-md shadow-teal-950/40"
+                              : "bg-teal-500/10 text-teal-400 hover:bg-teal-500/20 border border-teal-500/30"
+                          }`}
+                        >
+                          <span>🛡️ ปลอดค่าปรับ (0฿)</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const inputVal = prompt(
+                              `ระบุค่าปรับเฉพาะบุคคลสำหรับ ${selectedMember.nickname} (บาท/สัปดาห์):`,
+                              selectedMember.customLateFee !== undefined ? String(selectedMember.customLateFee) : String(lateFeePerWeek)
+                            );
+                            if (inputVal !== null) {
+                              const parsed = parseFloat(inputVal.trim());
+                              if (!isNaN(parsed) && parsed >= 0) {
+                                if (onEditMember) {
+                                  onEditMember(
+                                    selectedMember.id,
+                                    selectedMember.name,
+                                    selectedMember.nickname,
+                                    selectedMember.totalPaid,
+                                    selectedMember.initialCarryover,
+                                    parsed
+                                  );
+                                }
+                              } else if (inputVal.trim() === "") {
+                                if (onEditMember) {
+                                  onEditMember(
+                                    selectedMember.id,
+                                    selectedMember.name,
+                                    selectedMember.nickname,
+                                    selectedMember.totalPaid,
+                                    selectedMember.initialCarryover,
+                                    undefined
+                                  );
+                                }
+                              }
+                            }
+                          }}
+                          className="px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 hover:text-amber-300 border border-amber-500/30 rounded-xl text-xs font-semibold transition cursor-pointer flex items-center gap-1"
+                        >
+                          <Edit2 className="w-3 h-3" />
+                          <span>กำหนดจำนวนเงินเอง...</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Slip AI Auto Match Details */}

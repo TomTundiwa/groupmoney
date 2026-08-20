@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { Group, Member, Transaction } from "../types";
-import { Plus, Users, Landmark, PiggyBank, Target, ChevronDown, Lock, Unlock, ShieldAlert, ShieldCheck, Trash2, Key, Copy, Check, Smartphone, RefreshCw, Laptop, Settings, Crown } from "lucide-react";
+import { Plus, Users, Landmark, PiggyBank, Target, ChevronDown, Lock, Unlock, ShieldAlert, ShieldCheck, Trash2, Key, Copy, Check, Smartphone, RefreshCw, Laptop, Settings, Crown, Edit2, Sparkles, DollarSign } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { calculateMemberCarryover } from "../lib/carryover";
 
@@ -25,6 +25,7 @@ interface HeaderProps {
   profileMemberId?: string;
   onUpdateProfile?: (nickname: string, realName: string, emoji: string, memberId: string) => void;
   onOpenGroupSettings?: () => void;
+  onUpdateGroupTotalMoney?: (newTotal: number, reason?: string) => Promise<void> | void;
 }
 
 export default function Header({
@@ -47,6 +48,7 @@ export default function Header({
   profileMemberId = "",
   onUpdateProfile,
   onOpenGroupSettings,
+  onUpdateGroupTotalMoney,
 }: HeaderProps) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [newGroupName, setNewGroupName] = useState("");
@@ -55,6 +57,12 @@ export default function Header({
   const [newGroupPasscode, setNewGroupPasscode] = useState("");
   const [createGroupError, setCreateGroupError] = useState("");
   const [showSelector, setShowSelector] = useState(false);
+
+  // Edit Group Total Modal states
+  const [showEditTotalModal, setShowEditTotalModal] = useState(false);
+  const [editTotalInput, setEditTotalInput] = useState("");
+  const [editTotalReason, setEditTotalReason] = useState("");
+  const [isUpdatingTotal, setIsUpdatingTotal] = useState(false);
 
   // Profile states
   const [showProfileModal, setShowProfileModal] = useState(false);
@@ -189,7 +197,8 @@ export default function Header({
         activeGroup?.createdAt || new Date().toISOString(),
         activeGroup?.lateFeePerWeek || 0,
         member.initialCarryover || 0,
-        member.customLateFee
+        member.customLateFee,
+        member.manualFine || 0
       );
       return {
         member,
@@ -426,15 +435,34 @@ export default function Header({
         {activeGroup && (
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-8" id="stats-panel">
             {/* Stat 1: Total Collected */}
-            <div className="bg-slate-800/40 border border-slate-800/80 rounded-2xl p-4 flex items-center gap-3">
-              <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-xl border border-emerald-500/10">
-                <PiggyBank className="w-6 h-6" />
-              </div>
-              <div>
-                <p className="text-xs text-slate-400 font-sans">เก็บยอดทั้งหมดได้</p>
-                <p className="text-xl md:text-2xl font-bold text-slate-100 mt-0.5 font-mono">
-                  ฿{totalCollected.toLocaleString("th-TH", { minimumFractionDigits: 2 })}
-                </p>
+            <div className="bg-slate-800/40 border border-slate-800/80 rounded-2xl p-4 flex items-center justify-between gap-2 relative group">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-xl border border-emerald-500/10 shrink-0">
+                  <PiggyBank className="w-6 h-6" />
+                </div>
+                <div>
+                  <p className="text-xs text-slate-400 font-sans">เก็บยอดทั้งหมดได้</p>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <p className="text-xl md:text-2xl font-bold text-slate-100 font-mono">
+                      ฿{totalCollected.toLocaleString("th-TH", { minimumFractionDigits: 2 })}
+                    </p>
+                    {isLeader && onUpdateGroupTotalMoney && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditTotalInput(String(totalCollected));
+                          setEditTotalReason("ปรับปรุงยอดกองกลางโดยตรง");
+                          setShowEditTotalModal(true);
+                        }}
+                        className="p-1.5 bg-slate-800/90 hover:bg-emerald-500/20 text-slate-400 hover:text-emerald-300 border border-slate-700 hover:border-emerald-500/40 rounded-lg text-xs transition cursor-pointer flex items-center gap-1 shadow-sm active:scale-95"
+                        title="แก้ไขยอดรวมของเงินกลุ่ม (เฉพาะหัวหน้าก๊วน)"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                        <span className="text-[10px] font-sans hidden sm:inline">แก้ไขยอดรวม</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -1017,6 +1045,140 @@ export default function Header({
                     className="px-5 py-2 bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold rounded-xl text-xs transition cursor-pointer shadow-md"
                   >
                     บันทึกโปรไฟล์
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Edit Group Total Money Modal */}
+        {showEditTotalModal && (
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-slate-800 border border-slate-700 rounded-3xl w-full max-w-md p-6 shadow-2xl text-slate-100"
+            >
+              <div className="flex items-center justify-between border-b border-slate-700/60 pb-3.5 mb-4">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 bg-emerald-500/10 text-emerald-400 rounded-xl border border-emerald-500/20">
+                    <PiggyBank className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-slate-100 font-sans">
+                      แก้ไขยอดรวมของเงินกลุ่ม
+                    </h3>
+                    <p className="text-[11px] text-slate-400 font-sans">
+                      {activeGroup?.name || "ก๊วนปัจจุบัน"}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowEditTotalModal(false)}
+                  className="text-slate-400 hover:text-slate-200 p-1 rounded-lg hover:bg-slate-700 transition cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  const parsed = parseFloat(editTotalInput);
+                  if (isNaN(parsed) || parsed < 0) {
+                    alert("กรุณาระบุจำนวนเงินรวมที่ถูกต้อง (ตัวเลขมากกว่าหรือเท่ากับ 0)");
+                    return;
+                  }
+                  if (onUpdateGroupTotalMoney) {
+                    setIsUpdatingTotal(true);
+                    try {
+                      await onUpdateGroupTotalMoney(parsed, editTotalReason.trim() || undefined);
+                      setShowEditTotalModal(false);
+                    } finally {
+                      setIsUpdatingTotal(false);
+                    }
+                  }
+                }}
+                className="space-y-4 text-xs"
+              >
+                <div className="bg-slate-900/60 border border-slate-700/50 rounded-2xl p-3.5 space-y-1.5">
+                  <div className="flex justify-between items-center text-slate-400">
+                    <span>ยอดรวมปัจจุบันในระบบ:</span>
+                    <span className="font-mono text-emerald-400 font-bold text-sm">
+                      ฿{totalCollected.toLocaleString("th-TH", { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-slate-400 leading-relaxed font-sans">
+                    💡 ระบบจะคำนวณส่วนต่างและบันทึกรายการปรับปรุงยอดเงินกองกลางของกลุ่มให้ทันทีโดยอัตโนมัติ
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-slate-300 font-semibold mb-1.5 flex items-center justify-between">
+                    <span>ระบุยอดเงินรวมใหม่ที่ต้องการ (บาท):</span>
+                    <span className="text-[10px] text-emerald-400 font-mono">฿ THB</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      step="any"
+                      min="0"
+                      required
+                      value={editTotalInput}
+                      onChange={(e) => setEditTotalInput(e.target.value)}
+                      placeholder="เช่น 2500 หรือ 5000"
+                      className="w-full pl-8 pr-4 py-3 bg-slate-900 border border-slate-700 rounded-xl text-base font-mono font-bold focus:outline-none focus:border-emerald-500 text-slate-100 transition shadow-inner"
+                    />
+                    <DollarSign className="w-4 h-4 text-slate-400 absolute left-2.5 top-3.5" />
+                  </div>
+                </div>
+
+                {/* Quick Presets */}
+                <div className="flex flex-wrap gap-1.5">
+                  <span className="text-[10px] text-slate-400 w-full mb-0.5 font-sans">ทางลัดปรับยอด:</span>
+                  {[0, 1000, 2000, 3000, 5000, 10000].map((amt) => (
+                    <button
+                      key={amt}
+                      type="button"
+                      onClick={() => setEditTotalInput(String(amt))}
+                      className="px-2.5 py-1 bg-slate-900/80 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-emerald-300 rounded-lg text-[11px] font-mono transition cursor-pointer"
+                    >
+                      ฿{amt.toLocaleString("th-TH")}
+                    </button>
+                  ))}
+                </div>
+
+                <div>
+                  <label className="block text-slate-300 font-semibold mb-1.5">
+                    หมายเหตุ / สาเหตุการปรับยอด (ไม่บังคับ):
+                  </label>
+                  <input
+                    type="text"
+                    value={editTotalReason}
+                    onChange={(e) => setEditTotalReason(e.target.value)}
+                    placeholder="เช่น ปรับยอดยกมากองกลาง, เพิ่มเงินส่วนกลางพิเศษ"
+                    className="w-full px-3.5 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-xs focus:outline-none focus:border-emerald-500 text-slate-100 transition"
+                  />
+                </div>
+
+                <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-700/50 mt-4">
+                  <button
+                    type="button"
+                    onClick={() => setShowEditTotalModal(false)}
+                    className="px-4 py-2 text-slate-400 hover:text-slate-200 transition text-xs font-semibold cursor-pointer"
+                  >
+                    ยกเลิก
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isUpdatingTotal}
+                    className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-slate-950 font-bold rounded-xl text-xs transition cursor-pointer shadow-md flex items-center gap-1.5"
+                  >
+                    <Check className="w-4 h-4" />
+                    <span>{isUpdatingTotal ? "กำลังบันทึก..." : "บันทึกยอดรวมใหม่"}</span>
                   </button>
                 </div>
               </form>
