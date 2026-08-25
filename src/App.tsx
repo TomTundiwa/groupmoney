@@ -491,8 +491,7 @@ export default function App() {
     nickname: string,
     newTotalPaid?: number,
     initialCarryover?: number,
-    customLateFee?: number,
-    manualFine?: number
+    customLateFee?: number
   ) => {
     if (!isLeader) {
       alert("เฉพาะหัวหน้าก๊วนเท่านั้นที่สามารถแก้ไขข้อมูลและยอดเงินของสมาชิกได้");
@@ -507,13 +506,6 @@ export default function App() {
         updateData.customLateFee = customLateFee;
       } else if (customLateFee === undefined) {
         updateData.customLateFee = deleteField();
-      }
-      if (manualFine !== undefined) {
-        if (manualFine <= 0) {
-          updateData.manualFine = deleteField();
-        } else {
-          updateData.manualFine = manualFine;
-        }
       }
       await updateDoc(doc(db, "members", memberId), updateData);
 
@@ -576,26 +568,6 @@ export default function App() {
     }
   };
 
-  const handleInstantFine = async (memberId: string, fineAmount: number) => {
-    if (!isLeader) {
-      alert("เฉพาะหัวหน้าก๊วนเท่านั้นที่สามารถสั่งปรับเงินได้");
-      return;
-    }
-    try {
-      if (fineAmount <= 0) {
-        await updateDoc(doc(db, "members", memberId), {
-          manualFine: deleteField(),
-        });
-      } else {
-        await updateDoc(doc(db, "members", memberId), {
-          manualFine: fineAmount,
-        });
-      }
-    } catch (err) {
-      console.error("Error updating instant fine:", err);
-    }
-  };
-
   const handleUpdateGroupLateFee = async (lateFeePerWeek: number, lateFeeNote: string) => {
     if (!activeGroupId) return;
     if (!isLeader) {
@@ -629,8 +601,7 @@ export default function App() {
           activeGroup?.createdAt || new Date().toISOString(),
           activeGroup?.lateFeePerWeek || 0,
           member.initialCarryover || 0,
-          member.customLateFee,
-          member.manualFine || 0
+          member.customLateFee
         );
         return sum + carry.totalPaidAllTime;
       }, 0);
@@ -666,6 +637,28 @@ export default function App() {
     }
   };
 
+  // Update custom late fee for a specific member directly
+  const handleUpdateMemberCustomLateFee = async (memberId: string, customLateFee: number | undefined) => {
+    if (!isLeader) {
+      alert("เฉพาะหัวหน้าก๊วนเท่านั้นที่สามารถตั้งค่าปรับเฉพาะบุคคลได้");
+      return;
+    }
+    try {
+      if (customLateFee !== undefined && !isNaN(customLateFee) && customLateFee >= 0) {
+        await updateDoc(doc(db, "members", memberId), {
+          customLateFee: customLateFee,
+        });
+      } else {
+        await updateDoc(doc(db, "members", memberId), {
+          customLateFee: deleteField(),
+        });
+      }
+    } catch (err) {
+      console.error("Error updating member custom late fee:", err);
+      alert("เกิดข้อผิดพลาดในการตั้งค่าปรับเฉพาะบุคคล");
+    }
+  };
+
   // Set all members in current group to have a 400 Baht deficit
   const handleSetAllMembersDeficit400 = async () => {
     if (!activeGroupId || !activeGroup || activeMembers.length === 0) return;
@@ -683,8 +676,7 @@ export default function App() {
           activeGroup.createdAt,
           activeGroup.lateFeePerWeek || 0,
           0,
-          member.customLateFee,
-          0
+          member.customLateFee
         );
         // We want current deficit = 400
         // deficit = target - available => available = target - 400 (e.g. 200 - 400 = -200)
@@ -1272,7 +1264,7 @@ export default function App() {
                   onAddMember={handleAddMember}
                   onDeleteMember={handleDeleteMember}
                   onEditMember={handleEditMember}
-                  onInstantFine={handleInstantFine}
+                  onUpdateMemberCustomLateFee={handleUpdateMemberCustomLateFee}
                   onUpdateLateFee={handleUpdateGroupLateFee}
                   onSetAllDeficit400={handleSetAllMembersDeficit400}
                   isLeader={isLeader}
@@ -1741,34 +1733,6 @@ export default function App() {
                                 </div>
 
                                 <div className="flex items-center gap-1.5 shrink-0">
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const defaultAmount = m.manualFine && m.manualFine > 0 ? String(m.manualFine) : String(activeGroup?.lateFeePerWeek || 20);
-                                      const inputVal = prompt(
-                                        `⚡ สั่งปรับเงินทันทีสำหรับ ${m.nickname} (บาท):\n(ยอดค่าปรับจะนำไปบวกเพิ่มในยอดที่ต้องชำระของสัปดาห์นี้ทันที ไม่ต้องรอรอบ)\n\n- ใส่จำนวนเงิน เช่น 20, 50, 100\n- ใส่ 0 หรือปล่อยว่างเพื่อ "ยกเลิกค่าปรับ"`,
-                                        defaultAmount
-                                      );
-                                      if (inputVal !== null) {
-                                        const trimmed = inputVal.trim();
-                                        const parsed = parseFloat(trimmed);
-                                        if (trimmed === "" || isNaN(parsed) || parsed <= 0) {
-                                          handleInstantFine(m.id, 0);
-                                        } else {
-                                          handleInstantFine(m.id, parsed);
-                                        }
-                                      }
-                                    }}
-                                    className={`px-2 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1 transition cursor-pointer ${
-                                      m.manualFine && m.manualFine > 0
-                                        ? "bg-rose-500/20 text-rose-300 border border-rose-500/40 hover:bg-rose-500/30"
-                                        : "bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30"
-                                    }`}
-                                    title="สั่งปรับเงินทันทีโดยแอดมินไม่ต้องรอ"
-                                  >
-                                    <AlertTriangle className="w-3 h-3 text-amber-400" />
-                                    <span>{m.manualFine && m.manualFine > 0 ? `ปรับ ฿${m.manualFine}` : "⚡ สั่งปรับทันที"}</span>
-                                  </button>
                                   <button
                                     type="button"
                                     onClick={() => handleDeleteMember(m.id)}

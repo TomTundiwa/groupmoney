@@ -197,8 +197,7 @@ export default function Header({
         activeGroup?.createdAt || new Date().toISOString(),
         activeGroup?.lateFeePerWeek || 0,
         member.initialCarryover || 0,
-        member.customLateFee,
-        member.manualFine || 0
+        member.customLateFee
       );
       return {
         member,

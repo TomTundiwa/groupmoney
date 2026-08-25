@@ -13,8 +13,8 @@ interface MemberManagerProps {
   groupCreatedAt: string;
   onAddMember: (name: string, nickname: string) => void;
   onDeleteMember: (id: string) => void;
-  onEditMember?: (id: string, name: string, nickname: string, newTotalPaid?: number, initialCarryover?: number, customLateFee?: number, manualFine?: number) => void;
-  onInstantFine?: (memberId: string, fineAmount: number) => void;
+  onEditMember?: (id: string, name: string, nickname: string, newTotalPaid?: number, initialCarryover?: number, customLateFee?: number) => void;
+  onUpdateMemberCustomLateFee?: (memberId: string, customLateFee: number | undefined) => Promise<void> | void;
   onUpdateLateFee?: (lateFeePerWeek: number, lateFeeNote: string) => void;
   onSetAllDeficit400?: () => Promise<void> | void;
   isLeader?: boolean;
@@ -34,7 +34,7 @@ export default function MemberManager({
   onAddMember,
   onDeleteMember,
   onEditMember,
-  onInstantFine,
+  onUpdateMemberCustomLateFee,
   onUpdateLateFee,
   onSetAllDeficit400,
   isLeader = false,
@@ -57,7 +57,6 @@ export default function MemberManager({
   const [editTotalPaid, setEditTotalPaid] = useState<number | string>(0);
   const [editInitialCarryover, setEditInitialCarryover] = useState<number | string>(0);
   const [editCustomLateFee, setEditCustomLateFee] = useState<number | string>("");
-  const [editManualFine, setEditManualFine] = useState<number | string>("");
 
   const handleStartEdit = (m: any) => {
     setEditingId(m.id);
@@ -66,7 +65,6 @@ export default function MemberManager({
     setEditTotalPaid(m.totalPaid || 0);
     setEditInitialCarryover(m.initialCarryover || 0);
     setEditCustomLateFee(m.customLateFee !== undefined && m.customLateFee !== null ? m.customLateFee : "");
-    setEditManualFine(m.manualFine !== undefined && m.manualFine !== null && m.manualFine > 0 ? m.manualFine : "");
   };
 
   const handleCancelEdit = () => {
@@ -76,7 +74,6 @@ export default function MemberManager({
     setEditTotalPaid(0);
     setEditInitialCarryover(0);
     setEditCustomLateFee("");
-    setEditManualFine("");
   };
 
   const handleSaveEdit = (id: string) => {
@@ -85,15 +82,13 @@ export default function MemberManager({
       const parsedAmount = typeof editTotalPaid === "string" ? parseFloat(editTotalPaid) : editTotalPaid;
       const parsedCarryover = typeof editInitialCarryover === "string" ? parseFloat(editInitialCarryover) : editInitialCarryover;
       const parsedLateFee = editCustomLateFee === "" ? undefined : (typeof editCustomLateFee === "string" ? parseFloat(editCustomLateFee) : editCustomLateFee);
-      const parsedFine = editManualFine === "" ? 0 : (typeof editManualFine === "string" ? parseFloat(editManualFine) : editManualFine);
       onEditMember(
         id,
         editName.trim() || editNickname.trim(),
         editNickname.trim(),
         isNaN(parsedAmount) ? 0 : parsedAmount,
         isNaN(parsedCarryover) ? 0 : parsedCarryover,
-        parsedLateFee !== undefined && !isNaN(parsedLateFee) ? parsedLateFee : undefined,
-        isNaN(parsedFine) ? 0 : parsedFine
+        parsedLateFee !== undefined && !isNaN(parsedLateFee) ? parsedLateFee : undefined
       );
     }
     handleCancelEdit();
@@ -117,8 +112,7 @@ export default function MemberManager({
       groupCreatedAt,
       lateFeePerWeek,
       member.initialCarryover || 0,
-      member.customLateFee,
-      member.manualFine || 0
+      member.customLateFee
     );
     const memberTxs = transactions.filter((t) => t.memberId === member.id);
 
@@ -441,29 +435,6 @@ export default function MemberManager({
                       className="w-full px-2.5 py-1.5 bg-slate-900 border border-rose-500/50 rounded-lg text-xs text-rose-300 font-mono focus:outline-none focus:border-rose-500"
                     />
                   </div>
-                  <div>
-                    <div className="flex items-center justify-between mb-0.5">
-                      <label className="block text-[9px] text-amber-400 font-semibold">⚡ สั่งปรับทันทีรอบนี้ (฿)</label>
-                      {editManualFine !== "" && Number(editManualFine) > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => setEditManualFine("")}
-                          className="text-[8px] text-slate-400 hover:text-slate-200 bg-slate-800 px-1 rounded"
-                        >
-                          ยกเลิกค่าปรับ (0฿)
-                        </button>
-                      )}
-                    </div>
-                    <input
-                      type="number"
-                      step="any"
-                      min="0"
-                      value={editManualFine}
-                      onChange={(e) => setEditManualFine(e.target.value)}
-                      placeholder="เช่น 20, 50, 100"
-                      className="w-full px-2.5 py-1.5 bg-slate-900 border border-amber-500/50 rounded-lg text-xs text-amber-300 font-mono focus:outline-none focus:border-amber-500"
-                    />
-                  </div>
                 </div>
                 <div className="flex justify-end gap-1.5 pt-1">
                   <button
@@ -509,19 +480,60 @@ export default function MemberManager({
                           คุณ (Me)
                         </span>
                       )}
-                      {m.manualFine !== undefined && m.manualFine > 0 && (
-                        <span className="text-[9px] font-sans font-bold text-rose-300 bg-rose-500/20 border border-rose-500/40 px-1.5 py-0.2 rounded shrink-0 flex items-center gap-0.5 animate-pulse" title={`แอดมินสั่งปรับทันที ฿${m.manualFine}`}>
-                          <Zap className="w-2.5 h-2.5 text-rose-400" /> ปรับทันที ฿{m.manualFine}
-                        </span>
-                      )}
                       {m.customLateFee === 0 ? (
-                        <span className="text-[9px] font-sans font-semibold text-teal-400 bg-teal-500/10 border border-teal-500/25 px-1.5 py-0.2 rounded shrink-0" title="สมาชิกท่านนี้ได้รับการยกเว้นค่าปรับ">
-                          🛡️ ปลอดค่าปรับ
-                        </span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            if (!isLeader) return;
+                            e.stopPropagation();
+                            const choice = prompt(
+                              `🛡️ ตั้งค่าค่าปรับสำหรับ ${m.nickname}:\n\n- ใส่จำนวนเงินที่ต้องการปรับ (เช่น 20, 50, 100)\n- ใส่ 0 เพื่อ "ปลอดค่าปรับ"\n- ลบข้อความให้ว่างเปล่าเพื่อ "ใช้ตามก๊วน (${lateFeePerWeek}฿)"`,
+                              "0"
+                            );
+                            if (choice !== null) {
+                              const trimmed = choice.trim();
+                              if (trimmed === "") {
+                                if (onUpdateMemberCustomLateFee) onUpdateMemberCustomLateFee(m.id, undefined);
+                              } else {
+                                const parsed = parseFloat(trimmed);
+                                if (!isNaN(parsed) && parsed >= 0) {
+                                  if (onUpdateMemberCustomLateFee) onUpdateMemberCustomLateFee(m.id, parsed);
+                                }
+                              }
+                            }
+                          }}
+                          className={`text-[9px] font-sans font-semibold text-teal-400 bg-teal-500/10 border border-teal-500/25 px-1.5 py-0.5 rounded shrink-0 flex items-center gap-0.5 ${isLeader ? "hover:bg-teal-500/20 cursor-pointer" : ""}`}
+                          title={isLeader ? "คลิกเพื่อแก้ไขค่าปรับเฉพาะคน" : "สมาชิกท่านนี้ได้รับการยกเว้นค่าปรับ"}
+                        >
+                          🛡️ ปลอดค่าปรับ (0฿)
+                        </button>
                       ) : m.customLateFee !== undefined && m.customLateFee > 0 ? (
-                        <span className="text-[9px] font-sans font-semibold text-rose-300 bg-rose-500/10 border border-rose-500/25 px-1.5 py-0.2 rounded shrink-0" title={`ค่าปรับเฉพาะบุคคล ฿${m.customLateFee}/สัปดาห์`}>
-                          ⚡ ปรับเฉพาะคน ฿{m.customLateFee}
-                        </span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            if (!isLeader) return;
+                            e.stopPropagation();
+                            const choice = prompt(
+                              `⚡ ตั้งค่าค่าปรับสำหรับ ${m.nickname}:\n\n- ใส่จำนวนเงินที่ต้องการปรับ (เช่น 20, 50, 100)\n- ใส่ 0 เพื่อ "ปลอดค่าปรับ"\n- ลบข้อความให้ว่างเปล่าเพื่อ "ใช้ตามก๊วน (${lateFeePerWeek}฿)"`,
+                              String(m.customLateFee)
+                            );
+                            if (choice !== null) {
+                              const trimmed = choice.trim();
+                              if (trimmed === "") {
+                                if (onUpdateMemberCustomLateFee) onUpdateMemberCustomLateFee(m.id, undefined);
+                              } else {
+                                const parsed = parseFloat(trimmed);
+                                if (!isNaN(parsed) && parsed >= 0) {
+                                  if (onUpdateMemberCustomLateFee) onUpdateMemberCustomLateFee(m.id, parsed);
+                                }
+                              }
+                            }
+                          }}
+                          className={`text-[9px] font-sans font-bold text-rose-300 bg-rose-500/15 border border-rose-500/30 px-1.5 py-0.5 rounded shrink-0 flex items-center gap-0.5 ${isLeader ? "hover:bg-rose-500/25 cursor-pointer" : ""}`}
+                          title={isLeader ? "คลิกเพื่อแก้ไขค่าปรับเฉพาะคน" : `ค่าปรับเฉพาะบุคคล ฿${m.customLateFee}/สัปดาห์`}
+                        >
+                          ⚡ ปรับเฉพาะคน ฿{m.customLateFee}/สัปดาห์
+                        </button>
                       ) : null}
                       {m.name !== m.nickname && (
                         <p className="text-[10px] text-slate-500 truncate">({m.name})</p>
@@ -590,37 +602,6 @@ export default function MemberManager({
 
                   {isLeader ? (
                     <div className="flex items-center gap-1 border-l border-slate-800 pl-1.5 ml-1">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          const defaultAmt = m.manualFine && m.manualFine > 0 ? String(m.manualFine) : String(lateFeePerWeek || 20);
-                          const inputVal = prompt(
-                            `⚡ สั่งปรับเงินทันทีสำหรับ ${m.nickname} (บาท):\n(ยอดค่าปรับจะนำไปคิดในยอดที่ต้องชำระของสัปดาห์นี้ทันทีโดยไม่ต้องรอ)\n\n- ใส่จำนวนเงิน เช่น 20, 50, 100\n- ใส่ 0 เพื่อยกเลิกค่าปรับ`,
-                            defaultAmt
-                          );
-                          if (inputVal !== null) {
-                            const trimmed = inputVal.trim();
-                            const parsed = parseFloat(trimmed);
-                            if (onInstantFine) {
-                              if (trimmed === "" || isNaN(parsed) || parsed <= 0) {
-                                onInstantFine(m.id, 0);
-                              } else {
-                                onInstantFine(m.id, parsed);
-                              }
-                            }
-                          }
-                        }}
-                        className={`px-1.5 py-1 rounded-lg transition cursor-pointer flex items-center gap-0.5 text-[10px] font-bold ${
-                          m.manualFine && m.manualFine > 0
-                            ? "bg-rose-500/25 text-rose-300 border border-rose-500/50 hover:bg-rose-500/40 shadow-sm"
-                            : "text-amber-400/90 hover:text-amber-300 hover:bg-amber-500/10 border border-amber-500/20"
-                        }`}
-                        title={m.manualFine && m.manualFine > 0 ? `กำลังโดนปรับทันที ฿${m.manualFine} (คลิกเพื่อแก้หรือยกเลิก)` : "⚡ สั่งปรับเงินทันทีไม่ต้องรอ"}
-                      >
-                        <Zap className="w-3 h-3 text-amber-400" />
-                        <span>{m.manualFine && m.manualFine > 0 ? `฿${m.manualFine}` : "ปรับ"}</span>
-                      </button>
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -861,111 +842,6 @@ export default function MemberManager({
                   </div>
                 </div>
 
-                {/* Instant Admin Fine (ปรับได้ทันทีไม่ต้องรอ) */}
-                <div className="bg-slate-950/50 border border-rose-500/30 rounded-2xl p-4 space-y-3 text-xs shadow-sm">
-                  <div className="flex items-center justify-between">
-                    <h4 className="font-bold text-rose-300 flex items-center gap-1.5 font-sans">
-                      <Zap className="w-4 h-4 text-rose-400" />
-                      <span>⚡ สั่งปรับเงินทันทีโดยแอดมิน (Instant Fine - ปรับได้เลยไม่ต้องรอ)</span>
-                    </h4>
-                    {selectedMember.manualFine !== undefined && selectedMember.manualFine > 0 ? (
-                      <span className="text-[10px] font-sans font-bold text-rose-300 bg-rose-500/20 border border-rose-500/40 px-2.5 py-0.5 rounded-full flex items-center gap-1 animate-pulse">
-                        <AlertTriangle className="w-3 h-3 text-rose-400" /> ปรับทันที ฿{selectedMember.manualFine}
-                      </span>
-                    ) : (
-                      <span className="text-[10px] font-sans font-medium text-slate-400 bg-slate-900 border border-slate-800 px-2 py-0.5 rounded-full">
-                        ไม่มีคำสั่งปรับทันที
-                      </span>
-                    )}
-                  </div>
-
-                  <p className="text-slate-400 text-[11px] leading-relaxed font-sans">
-                    {selectedMember.manualFine !== undefined && selectedMember.manualFine > 0
-                      ? `สมาชิกท่านนี้กำลังถูกสั่งปรับทันทีจำนวน ฿${selectedMember.manualFine} ซึ่งถูกนำไปรวมในยอดที่ต้องชำระสัปดาห์นี้แล้ว`
-                      : `แอดมินสามารถกดปุ่มสั่งปรับเงิน ${selectedMember.nickname} ได้ทันทีโดยไม่ต้องรอให้จบสัปดาห์ ยอดค่าปรับจะถูกนำไปบวกเพิ่มในยอดที่ต้องชำระของสัปดาห์นี้ทันที`}
-                  </p>
-
-                  {isLeader && (
-                    <div className="pt-2 border-t border-slate-800/80 space-y-2">
-                      <p className="text-[10px] font-semibold text-slate-300 font-sans">
-                        ⚡ ปุ่มลัดสั่งปรับทันที (ไม่ต้องรอรอบ):
-                      </p>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const amount = lateFeePerWeek > 0 ? lateFeePerWeek : 20;
-                            if (onInstantFine) onInstantFine(selectedMember.id, amount);
-                          }}
-                          className="px-3 py-1.5 bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 rounded-xl text-xs font-semibold transition cursor-pointer flex items-center gap-1"
-                        >
-                          <Zap className="w-3 h-3 text-amber-400" />
-                          <span>ปรับ +฿{lateFeePerWeek > 0 ? lateFeePerWeek : 20} (ตามเรท)</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (onInstantFine) onInstantFine(selectedMember.id, 50);
-                          }}
-                          className="px-3 py-1.5 bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 rounded-xl text-xs font-semibold transition cursor-pointer flex items-center gap-1"
-                        >
-                          <Zap className="w-3 h-3 text-amber-400" />
-                          <span>ปรับ +฿50</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (onInstantFine) onInstantFine(selectedMember.id, 100);
-                          }}
-                          className="px-3 py-1.5 bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 rounded-xl text-xs font-semibold transition cursor-pointer flex items-center gap-1"
-                        >
-                          <Zap className="w-3 h-3 text-amber-400" />
-                          <span>ปรับ +฿100</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const inputVal = prompt(
-                              `ระบุจำนวนเงินที่ต้องการสั่งปรับทันทีสำหรับ ${selectedMember.nickname} (บาท):`,
-                              selectedMember.manualFine && selectedMember.manualFine > 0 ? String(selectedMember.manualFine) : "20"
-                            );
-                            if (inputVal !== null) {
-                              const parsed = parseFloat(inputVal.trim());
-                              if (onInstantFine) {
-                                if (inputVal.trim() === "" || isNaN(parsed) || parsed <= 0) {
-                                  onInstantFine(selectedMember.id, 0);
-                                } else {
-                                  onInstantFine(selectedMember.id, parsed);
-                                }
-                              }
-                            }
-                          }}
-                          className="px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-xl text-xs font-semibold transition cursor-pointer flex items-center gap-1"
-                        >
-                          <Edit2 className="w-3 h-3" />
-                          <span>กำหนดเอง...</span>
-                        </button>
-
-                        {selectedMember.manualFine !== undefined && selectedMember.manualFine > 0 && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (onInstantFine) onInstantFine(selectedMember.id, 0);
-                            }}
-                            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-xl text-xs font-semibold transition cursor-pointer flex items-center gap-1"
-                          >
-                            <X className="w-3 h-3 text-slate-400" />
-                            <span>ยกเลิกค่าปรับ (฿0)</span>
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
                 {/* Custom Late Fee Management for this Member */}
                 <div className="bg-slate-950/40 border border-slate-800 rounded-2xl p-4 space-y-3 text-xs">
                   <div className="flex items-center justify-between">
@@ -1005,7 +881,9 @@ export default function MemberManager({
                         <button
                           type="button"
                           onClick={() => {
-                            if (onEditMember) {
+                            if (onUpdateMemberCustomLateFee) {
+                              onUpdateMemberCustomLateFee(selectedMember.id, undefined);
+                            } else if (onEditMember) {
                               onEditMember(
                                 selectedMember.id,
                                 selectedMember.name,
@@ -1028,7 +906,9 @@ export default function MemberManager({
                         <button
                           type="button"
                           onClick={() => {
-                            if (onEditMember) {
+                            if (onUpdateMemberCustomLateFee) {
+                              onUpdateMemberCustomLateFee(selectedMember.id, 0);
+                            } else if (onEditMember) {
                               onEditMember(
                                 selectedMember.id,
                                 selectedMember.name,
@@ -1052,24 +932,15 @@ export default function MemberManager({
                           type="button"
                           onClick={() => {
                             const inputVal = prompt(
-                              `ระบุค่าปรับเฉพาะบุคคลสำหรับ ${selectedMember.nickname} (บาท/สัปดาห์):`,
+                              `ระบุค่าปรับเฉพาะบุคคลสำหรับ ${selectedMember.nickname} (บาท/สัปดาห์):\n\n- ใส่ตัวเลข เช่น 20, 50, 100\n- ใส่ 0 สำหรับปลอดค่าปรับ\n- ปล่อยว่างเพื่อใช้ตามก๊วน (${lateFeePerWeek}฿)`,
                               selectedMember.customLateFee !== undefined ? String(selectedMember.customLateFee) : String(lateFeePerWeek)
                             );
                             if (inputVal !== null) {
-                              const parsed = parseFloat(inputVal.trim());
-                              if (!isNaN(parsed) && parsed >= 0) {
-                                if (onEditMember) {
-                                  onEditMember(
-                                    selectedMember.id,
-                                    selectedMember.name,
-                                    selectedMember.nickname,
-                                    selectedMember.totalPaid,
-                                    selectedMember.initialCarryover,
-                                    parsed
-                                  );
-                                }
-                              } else if (inputVal.trim() === "") {
-                                if (onEditMember) {
+                              const trimmed = inputVal.trim();
+                              if (trimmed === "") {
+                                if (onUpdateMemberCustomLateFee) {
+                                  onUpdateMemberCustomLateFee(selectedMember.id, undefined);
+                                } else if (onEditMember) {
                                   onEditMember(
                                     selectedMember.id,
                                     selectedMember.name,
@@ -1078,6 +949,22 @@ export default function MemberManager({
                                     selectedMember.initialCarryover,
                                     undefined
                                   );
+                                }
+                              } else {
+                                const parsed = parseFloat(trimmed);
+                                if (!isNaN(parsed) && parsed >= 0) {
+                                  if (onUpdateMemberCustomLateFee) {
+                                    onUpdateMemberCustomLateFee(selectedMember.id, parsed);
+                                  } else if (onEditMember) {
+                                    onEditMember(
+                                      selectedMember.id,
+                                      selectedMember.name,
+                                      selectedMember.nickname,
+                                      selectedMember.totalPaid,
+                                      selectedMember.initialCarryover,
+                                      parsed
+                                    );
+                                  }
                                 }
                               }
                             }
