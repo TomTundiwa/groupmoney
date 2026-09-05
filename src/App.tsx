@@ -1711,11 +1711,6 @@ export default function App() {
                                   <div className="min-w-0">
                                     <div className="flex items-center gap-1.5 flex-wrap">
                                       <p className="text-xs font-bold text-slate-200 truncate">{m.nickname}</p>
-                                      {m.manualFine !== undefined && m.manualFine > 0 && (
-                                        <span className="text-[9px] font-sans font-bold text-rose-300 bg-rose-500/20 border border-rose-500/40 px-1.5 py-0.2 rounded shrink-0 animate-pulse">
-                                          ⚡ โดนปรับทันที ฿{m.manualFine}
-                                        </span>
-                                      )}
                                       {m.customLateFee === 0 ? (
                                         <span className="text-[9px] font-sans font-bold text-teal-400 bg-teal-500/10 border border-teal-500/25 px-1.5 py-0.2 rounded shrink-0">
                                           🛡️ ปลอดค่าปรับ

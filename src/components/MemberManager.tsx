@@ -543,26 +543,6 @@ export default function MemberManager({
                       <p className="text-[10px] font-mono text-slate-400">
                         สัปดาห์นี้: ฿{m.carryover.currentWeekStatus.available.toLocaleString("th-TH")} / ฿{targetAmountPerMember.toLocaleString("th-TH")}
                       </p>
-                      {m.carryover.currentWeekStatus.carriedIn > 0 && (
-                        <span className="text-[9px] font-sans text-emerald-400 bg-emerald-500/5 border border-emerald-500/10 px-1.5 py-0.5 rounded w-fit">
-                          💰 ทบมาจากสัปดาห์ก่อน ฿{m.carryover.currentWeekStatus.carriedIn.toLocaleString("th-TH")}
-                        </span>
-                      )}
-                      {m.carryover.currentWeekStatus.lateFeeThisWeek > 0 && !m.isPaidFully && (
-                        <span className="text-[9px] font-sans font-bold text-rose-400 bg-rose-500/15 border border-rose-500/30 px-1.5 py-0.5 rounded w-fit flex items-center gap-1">
-                          ⚡ มีค่าปรับล่าช้า +฿{m.carryover.currentWeekStatus.lateFeeThisWeek.toLocaleString("th-TH")}
-                        </span>
-                      )}
-                      {m.carryover.currentWeekStatus.carriedIn < 0 && m.carryover.currentWeekStatus.rawPaidThisWeek < Math.abs(m.carryover.currentWeekStatus.carriedIn) && (
-                        <span className="text-[9px] font-sans text-rose-400 bg-rose-500/5 border border-rose-500/10 px-1.5 py-0.5 rounded w-fit flex items-center gap-1">
-                          ⚠️ ค้างทบมาจากสัปดาห์ก่อน ฿{(Math.abs(m.carryover.currentWeekStatus.carriedIn) - m.carryover.currentWeekStatus.rawPaidThisWeek).toLocaleString("th-TH")}
-                        </span>
-                      )}
-                      {m.carryover.currentWeekStatus.carriedIn < 0 && m.carryover.currentWeekStatus.rawPaidThisWeek >= Math.abs(m.carryover.currentWeekStatus.carriedIn) && !m.isPaidFully && (
-                        <span className="text-[9px] font-sans text-emerald-400 bg-emerald-500/5 border border-emerald-500/10 px-1.5 py-0.5 rounded w-fit flex items-center gap-1">
-                          💰 จ่ายทบเคลียร์ยอดค้างแล้ว (ค้างจ่ายและค่าปรับหายไป)
-                        </span>
-                      )}
                     </div>
                   </div>
                 </div>
@@ -570,16 +550,9 @@ export default function MemberManager({
                 {/* Status Pill and Actions */}
                 <div className="flex items-center gap-2 flex-shrink-0">
                   {m.isPaidFully ? (
-                    <div className="flex flex-col items-end gap-0.5">
-                      <span className="text-[9px] font-sans font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full flex items-center gap-0.5">
-                        <UserCheck className="w-3 h-3" /> ครบถ้วน
-                      </span>
-                      {m.carryover.currentWeekStatus.carriedOut > 0 && (
-                        <span className="text-[8px] text-emerald-300 font-mono">
-                          ทบถัดไป ฿{m.carryover.currentWeekStatus.carriedOut.toLocaleString("th-TH")}
-                        </span>
-                      )}
-                    </div>
+                    <span className="text-[9px] font-sans font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full flex items-center gap-0.5">
+                      <UserCheck className="w-3 h-3" /> ครบถ้วน
+                    </span>
                   ) : m.carryover.currentWeekStatus.lateFeeThisWeek > 0 && !m.isPaidFully ? (
                     <div className="flex flex-col items-end gap-0.5">
                       <span className="text-[9px] font-sans font-bold text-rose-400 bg-rose-500/15 border border-rose-500/30 px-2.5 py-0.5 rounded-full flex items-center gap-1">
