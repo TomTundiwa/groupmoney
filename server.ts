@@ -271,13 +271,17 @@ Follow these strict rules to ensure absolute accuracy:
     let lastError: any = null;
     let succeededModel = "";
 
+    // Models prioritized according to current platform support and availability.
+    // gemini-3.8-flash is the primary model for multimodal text extraction.
     const modelsToTry = [
-      "gemini-3.5-flash",
+      "gemini-3.8-flash",
       "gemini-3.1-flash-lite",
-      "gemini-flash-latest"
+      "gemini-flash-latest",
+      "gemini-3.1-pro-preview",
+      "gemini-3.5-flash",
     ];
 
-    // 1. Try with responseSchema (structured output) first across all models
+    // 1. Try with responseSchema (structured output) across models
     for (const modelName of modelsToTry) {
       try {
         console.log(`[SLIP PARSER] Attempting with model: ${modelName} (structured schema)...`);
@@ -291,11 +295,11 @@ Follow these strict rules to ensure absolute accuracy:
       } catch (err: any) {
         console.warn(`[SLIP PARSER] Model ${modelName} with schema failed:`, err.message || err);
         lastError = err;
+        // Continue to next available model (handles 503 high demand spikes or 429 automatically)
       }
     }
 
-    // 2. If structured schema failed (e.g. schema validation limitations or unsupported config),
-    // fallback to normal generation using raw JSON response requests
+    // 2. If structured schema failed (e.g. schema limitations), fallback to raw JSON generation
     if (!response) {
       console.warn("[SLIP PARSER] All schema-based models failed. Initiating fallback without schema...");
       const fallbackConfig = {
@@ -321,7 +325,12 @@ Follow these strict rules to ensure absolute accuracy:
     }
 
     if (!response) {
-      throw new Error(`All Gemini parsing models failed. Last error: ${lastError?.message || lastError}`);
+      const errStr = typeof lastError === "string" ? lastError : (lastError?.message || JSON.stringify(lastError || ""));
+      const isHighDemand = errStr.includes("503") || errStr.includes("high demand") || errStr.includes("UNAVAILABLE");
+      const errorMsg = isHighDemand
+        ? "ระบบ AI สแกนสลิปมีผู้ใช้งานหนาแน่นชั่วคราว (503 High Demand) กรุณาลองใหม่อีกครั้งใน 1-2 นาที หรือเลือกกรอกยอดเงินด้วยตนเอง"
+        : `ไม่สามารถสแกนสลิปผ่าน AI ได้: ${errStr}`;
+      throw new Error(errorMsg);
     }
 
     const resultText = response.text;
@@ -437,6 +446,351 @@ Follow these strict rules to ensure absolute accuracy:
       success: false,
       error: error.message || "Failed to process slip image.",
     });
+  }
+});
+
+// Helper to validate Discord webhook URLs
+const isValidDiscordWebhookUrl = (url: string): boolean => {
+  if (!url || typeof url !== "string") return false;
+  const pattern = /^https:\/\/(canary\.|ptb\.)?discord(app)?\.com\/api\/webhooks\/\d+\/[\w-]+/i;
+  return pattern.test(url.trim());
+};
+
+// Discord Webhook: Test connection endpoint
+app.post("/api/discord/test", async (req, res) => {
+  try {
+    const { webhookUrl, groupName } = req.body;
+    if (!webhookUrl || typeof webhookUrl !== "string") {
+      return res.status(400).json({ success: false, error: "กรุณาระบุ Discord Webhook URL" });
+    }
+    if (!isValidDiscordWebhookUrl(webhookUrl.trim())) {
+      return res.status(400).json({
+        success: false,
+        error: "รูปแบบ Webhook URL ไม่ถูกต้อง ต้องขึ้นต้นด้วย https://discord.com/api/webhooks/...",
+      });
+    }
+
+    const embed = {
+      title: "🔔 ทดสอบการเชื่อมต่อ Discord Webhook สำเร็จ!",
+      description: `ระบบแจ้งเตือนของก๊วน **${groupName || "ก๊วนออมเงิน"}** ได้เชื่อมต่อกับ Discord Webhook นี้เรียบร้อยแล้ว 🎉\nต่อไปเมื่อมีสมาชิกบันทึกสลิปหรือโอนเงินเข้ากลุ่ม ระบบจะแจ้งเตือนมายังห้องนี้อัตโนมัติ`,
+      color: 0x5865F2, // Discord Blurple
+      fields: [
+        { name: "🏢 กลุ่ม", value: groupName || "ก๊วนออมเงิน", inline: true },
+        { name: "🕒 เวลาทดสอบ", value: new Date().toLocaleTimeString("th-TH"), inline: true },
+        { name: "🛡️ สถานะ", value: "พร้อมรับแจ้งเตือน (Active)", inline: true },
+      ],
+      footer: {
+        text: "Group Money Tracker • Discord Notification",
+      },
+      timestamp: new Date().toISOString(),
+    };
+
+    const response = await fetch(webhookUrl.trim(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        username: "Group Money Bot",
+        avatar_url: "https://cdn-icons-png.flaticon.com/512/9028/9028031.png",
+        embeds: [embed],
+      }),
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      return res.status(response.status).json({
+        success: false,
+        error: `Discord ปฏิเสธคำขอ (${response.status}): ${errText || response.statusText}`,
+      });
+    }
+
+    return res.json({ success: true, message: "ส่งข้อความทดสอบไปยัง Discord สำเร็จแล้ว!" });
+  } catch (err: any) {
+    console.error("Error in /api/discord/test:", err);
+    return res.status(500).json({ success: false, error: err.message || "ไม่สามารถเชื่อมต่อไปยัง Discord ได้" });
+  }
+});
+
+// Discord Webhook: Notify new transaction endpoint
+app.post("/api/discord/notify-transaction", async (req, res) => {
+  try {
+    const {
+      webhookUrl,
+      groupName,
+      memberNickname,
+      memberName,
+      amount,
+      bank,
+      date,
+      time,
+      notes,
+      method,
+      memberTotalPaid,
+      targetAmount,
+      progressPercent,
+      hasSlipImage,
+      slipImageUrl,
+    } = req.body;
+
+    if (!webhookUrl || !isValidDiscordWebhookUrl(webhookUrl.trim())) {
+      return res.status(400).json({ success: false, error: "Invalid Discord Webhook URL." });
+    }
+
+    const formattedAmount = Number(amount || 0).toLocaleString("th-TH", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+
+    const hasImage = Boolean(slipImageUrl || hasSlipImage);
+
+    const embed: Record<string, any> = {
+      title: `💸 แจ้งเตือนการโอนเงิน: ${groupName || "ก๊วนออมเงิน"}`,
+      description: `**${memberNickname || "สมาชิก"}** ได้โอนเงินเข้ากลุ่มจำนวน **+฿${formattedAmount}** เรียบร้อยแล้ว!`,
+      color: 0x10B981, // Emerald green
+      fields: [
+        {
+          name: "👤 ผู้โอน",
+          value: `${memberNickname || "สมาชิก"}${memberName && memberName !== memberNickname ? ` (${memberName})` : ""}`,
+          inline: true,
+        },
+        {
+          name: "💰 ยอดเงิน",
+          value: `+฿${formattedAmount}`,
+          inline: true,
+        },
+        {
+          name: "🏦 ธนาคาร/ช่องทาง",
+          value: bank || "ธนาคาร",
+          inline: true,
+        },
+        {
+          name: "📅 วันและเวลา",
+          value: `${date || "-"} ${time || ""}`,
+          inline: true,
+        },
+        {
+          name: "📊 ยอดสะสมรวม",
+          value: `฿${Number(memberTotalPaid || 0).toLocaleString("th-TH")}${targetAmount ? ` / ฿${Number(targetAmount).toLocaleString("th-TH")} (${progressPercent || 0}%)` : ""}`,
+          inline: true,
+        },
+        {
+          name: "⚙️ วิธีบันทึก",
+          value: `${method || "บันทึกข้อมูล"}${hasImage ? " (📎 แนบรูปสลิป)" : ""}`,
+          inline: true,
+        },
+        ...(notes ? [{ name: "📝 บันทึกช่วยจำ", value: notes, inline: false }] : []),
+      ],
+      footer: {
+        text: `Group Money Tracker • ${groupName || "ก๊วนออมเงิน"}`,
+      },
+      timestamp: new Date().toISOString(),
+    };
+
+    let formData: FormData | null = null;
+
+    // Attach slip image to Discord webhook if provided
+    if (slipImageUrl && typeof slipImageUrl === "string" && slipImageUrl.trim()) {
+      const cleanUrl = slipImageUrl.trim();
+      if (cleanUrl.startsWith("data:")) {
+        try {
+          const match = cleanUrl.match(/^data:([^;]+);base64,(.+)$/);
+          if (match) {
+            const mimeType = match[1] || "image/jpeg";
+            const base64Data = match[2];
+            const buffer = Buffer.from(base64Data, "base64");
+
+            let ext = "jpg";
+            if (mimeType.includes("png")) ext = "png";
+            else if (mimeType.includes("webp")) ext = "webp";
+            else if (mimeType.includes("gif")) ext = "gif";
+            else if (mimeType.includes("heic")) ext = "heic";
+
+            const filename = `slip-${Date.now()}.${ext}`;
+
+            // Reference file attachment in Discord embed
+            embed.image = {
+              url: `attachment://${filename}`,
+            };
+
+            formData = new FormData();
+            formData.append(
+              "payload_json",
+              JSON.stringify({
+                username: "Group Money Bot",
+                avatar_url: "https://cdn-icons-png.flaticon.com/512/9028/9028031.png",
+                embeds: [embed],
+              })
+            );
+
+            const blob = new Blob([buffer], { type: mimeType });
+            formData.append("files[0]", blob, filename);
+          }
+        } catch (imgErr) {
+          console.warn("Failed to process slip image base64 for Discord webhook:", imgErr);
+        }
+      } else if (cleanUrl.startsWith("http://") || cleanUrl.startsWith("https://")) {
+        embed.image = {
+          url: cleanUrl,
+        };
+      }
+    }
+
+    let response: Response;
+    if (formData) {
+      response = await fetch(webhookUrl.trim(), {
+        method: "POST",
+        body: formData,
+      });
+    } else {
+      response = await fetch(webhookUrl.trim(), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: "Group Money Bot",
+          avatar_url: "https://cdn-icons-png.flaticon.com/512/9028/9028031.png",
+          embeds: [embed],
+        }),
+      });
+    }
+
+    if (!response.ok) {
+      const errText = await response.text();
+      return res.status(response.status).json({
+        success: false,
+        error: `Discord returned ${response.status}: ${errText}`,
+      });
+    }
+
+    return res.json({ success: true, hasAttachedImage: Boolean(formData || embed.image) });
+  } catch (err: any) {
+    console.error("Error in /api/discord/notify-transaction:", err);
+    return res.status(500).json({ success: false, error: err.message || "Failed to notify Discord." });
+  }
+});
+
+// Import Discord Bot Service
+import {
+  discordBotManager,
+  buildCheckEmbed,
+  buildBalanceEmbed,
+  buildHelpEmbed,
+  fetchGroupData,
+} from "./server/discordBotService";
+
+// Discord Bot: Get connection status for a group
+app.get("/api/discord/bot/status/:groupId", (req, res) => {
+  const { groupId } = req.params;
+  const status = discordBotManager.getBotStatus(groupId);
+  return res.json({ success: true, ...status });
+});
+
+// Discord Bot: Connect or reconnect bot for a group
+app.post("/api/discord/bot/connect", async (req, res) => {
+  try {
+    const { groupId, botToken, channelId } = req.body;
+    if (!groupId || !botToken) {
+      return res.status(400).json({ success: false, error: "Missing groupId or botToken." });
+    }
+
+    const result = await discordBotManager.connectBot(groupId, botToken, channelId);
+    if (!result.success) {
+      return res.status(400).json({ success: false, error: result.error });
+    }
+
+    const status = discordBotManager.getBotStatus(groupId);
+    return res.json({
+      success: true,
+      message: `เชื่อมต่อ Discord Bot สำเร็จในชื่อ ${status.botUsername || "Bot"}! พร้อมรับคำสั่ง !เช็ค และ !ยอดเงิน แล้ว`,
+      botUsername: status.botUsername,
+    });
+  } catch (err: any) {
+    console.error("Error connecting Discord Bot:", err);
+    return res.status(500).json({ success: false, error: err.message || "Failed to connect bot." });
+  }
+});
+
+// Discord Bot: Disconnect bot
+app.post("/api/discord/bot/disconnect", (req, res) => {
+  const { groupId } = req.body;
+  if (groupId) {
+    discordBotManager.disconnectBot(groupId);
+  }
+  return res.json({ success: true, message: "ตัดการเชื่อมต่อ Discord Bot สำเร็จ" });
+});
+
+// Discord Command Execution & Preview Endpoint (Supports !เช็ค, !ยอดเงิน, !คำสั่ง)
+// Can be called to test preview in UI or push to Discord webhook directly
+app.post("/api/discord/command", async (req, res) => {
+  try {
+    const { groupId, command, sendToWebhook } = req.body;
+    if (!groupId || !command) {
+      return res.status(400).json({ success: false, error: "Missing groupId or command." });
+    }
+
+    const data = await fetchGroupData(groupId);
+    if (!data) {
+      return res.status(404).json({ success: false, error: "Group not found." });
+    }
+
+    const cmd = String(command).trim().toLowerCase();
+    let embed;
+
+    if (
+      cmd.startsWith("!เช็คก่อน") ||
+      cmd.startsWith("!checkprev") ||
+      cmd.startsWith("!เช็คอาทิตย์ก่อน") ||
+      cmd.startsWith("!เช็คสัปดาห์ก่อน") ||
+      cmd.startsWith("!ค้างก่อน")
+    ) {
+      embed = buildCheckEmbed(data.group, data.members, data.transactions, "previous");
+    } else if (
+      cmd.startsWith("!เช็ค") ||
+      cmd.startsWith("!check") ||
+      cmd.startsWith("!ค้าง") ||
+      cmd.startsWith("!หนี้") ||
+      cmd.startsWith("!เช็คปัจจุบัน")
+    ) {
+      embed = buildCheckEmbed(data.group, data.members, data.transactions, "current");
+    } else if (
+      cmd.startsWith("!ยอดเงิน") ||
+      cmd.startsWith("!balance") ||
+      cmd.startsWith("!เงิน") ||
+      cmd.startsWith("!money")
+    ) {
+      embed = buildBalanceEmbed(data.group, data.members, data.transactions);
+    } else {
+      embed = buildHelpEmbed(data.group);
+    }
+
+    let webhookResult = null;
+    if (sendToWebhook && data.group.discordWebhookUrl && isValidDiscordWebhookUrl(data.group.discordWebhookUrl)) {
+      try {
+        const discordRes = await fetch(data.group.discordWebhookUrl.trim(), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            username: "Group Money Bot",
+            avatar_url: "https://cdn-icons-png.flaticon.com/512/9028/9028031.png",
+            embeds: [embed],
+          }),
+        });
+        webhookResult = {
+          sent: discordRes.ok,
+          status: discordRes.status,
+        };
+      } catch (err: any) {
+        webhookResult = { sent: false, error: err.message };
+      }
+    }
+
+    return res.json({
+      success: true,
+      command,
+      embed,
+      webhookResult,
+    });
+  } catch (err: any) {
+    console.error("Error executing discord command:", err);
+    return res.status(500).json({ success: false, error: err.message || "Failed to execute command." });
   }
 });
 

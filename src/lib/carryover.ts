@@ -2,6 +2,7 @@ import { Member, Transaction } from "../types";
 
 export interface WeekCarryoverData {
   label: string; // "14 ก.ค. - 20 ก.ค."
+  cycleLabel?: string; // "จ. 14 ก.ค. 00:01 น. - จ. 21 ก.ค. 00:00 น."
   startDate: Date;
   endDate: Date;
   rawPaid: number;          // Actual amount paid in this specific week
@@ -29,6 +30,30 @@ export interface MemberCarryoverResult {
   weeksHistory: WeekCarryoverData[];
 }
 
+/**
+ * Convert any Date or date string to Bangkok Local Time (UTC+7) Date object
+ * whose getHours(), getMinutes(), getDay(), getDate(), etc. represent Thailand time.
+ */
+export function toBangkokDate(dateInput?: Date | string | number | null): Date {
+  let d: Date;
+  if (!dateInput) {
+    d = new Date();
+  } else if (typeof dateInput === "string" || typeof dateInput === "number") {
+    d = new Date(dateInput);
+  } else {
+    d = new Date(dateInput.getTime());
+  }
+
+  if (isNaN(d.getTime())) {
+    d = new Date();
+  }
+
+  // Calculate UTC time in ms
+  const utcMs = d.getTime() + d.getTimezoneOffset() * 60000;
+  // Bangkok is UTC + 7 hours
+  return new Date(utcMs + 7 * 3600000);
+}
+
 export function getEarliestDate(groupCreatedAt: string, transactions: Transaction[]): Date {
   let earliest = new Date(groupCreatedAt);
   if (isNaN(earliest.getTime())) {
@@ -37,37 +62,57 @@ export function getEarliestDate(groupCreatedAt: string, transactions: Transactio
   return earliest;
 }
 
+/**
+ * Calculate the starting Monday 00:01:00 for the weekly cycle that contains the given date.
+ * Weekly cycle: Every Monday 00:01:00 until next Monday 00:00:59.
+ * If the date is Monday before 00:01:00 (e.g. 00:00:30), it belongs to the PREVIOUS cycle.
+ */
 export function getMondayOfDate(date: Date): Date {
-  const d = new Date(date);
+  const d = toBangkokDate(date);
   const day = d.getDay();
   // day: 0 is Sunday, 1 is Monday, ..., 6 is Saturday
   let diff = d.getDate() - day + (day === 0 ? -6 : 1);
 
-  // If it's Monday but before 00:01 (0 hours, 0 mins), it belongs to the previous week!
+  // If it's Monday but before 00:01:00 (0 hours, 0 mins), it belongs to the previous week!
   if (day === 1 && d.getHours() === 0 && d.getMinutes() < 1) {
     diff -= 7;
   }
 
-  const monday = new Date(d.setDate(diff));
-  monday.setHours(0, 1, 0, 0); // Monday 00:01:00
+  const monday = new Date(d);
+  monday.setDate(diff);
+  monday.setHours(0, 1, 0, 0); // Monday 00:01:00.000
   return monday;
 }
 
+/**
+ * Parse transaction date and time into a Date object matching Bangkok local time.
+ */
 export function parseTxDateTime(tx: Transaction): Date {
-  if (tx.time && tx.date) {
-    const timeStr = tx.time.length === 5 ? `${tx.time}:00` : tx.time;
-    const d = new Date(`${tx.date}T${timeStr}`);
-    if (!isNaN(d.getTime())) return d;
+  if (tx.date) {
+    const parts = tx.date.split("-").map(Number);
+    if (parts.length === 3 && !isNaN(parts[0]) && !isNaN(parts[1]) && !isNaN(parts[2])) {
+      const year = parts[0];
+      const month = parts[1] - 1;
+      const day = parts[2];
+      let hour = 12;
+      let minute = 0;
+      let second = 0;
+      if (tx.time) {
+        const timeParts = tx.time.split(":").map(Number);
+        if (!isNaN(timeParts[0])) hour = timeParts[0];
+        if (!isNaN(timeParts[1])) minute = timeParts[1];
+        if (timeParts.length > 2 && !isNaN(timeParts[2])) second = timeParts[2];
+      }
+      return new Date(year, month, day, hour, minute, second, 0);
+    }
   }
   if (tx.createdAt) {
-    const d = new Date(tx.createdAt);
-    if (!isNaN(d.getTime())) return d;
+    return toBangkokDate(tx.createdAt);
   }
-  const d = new Date(`${tx.date}T12:00:00`);
-  return isNaN(d.getTime()) ? new Date() : d;
+  return toBangkokDate();
 }
 
-export function generateWeeks(groupCreatedAt: string, transactions: Transaction[]): { label: string; startDate: Date; endDate: Date }[] {
+export function generateWeeks(groupCreatedAt: string, transactions: Transaction[]): { label: string; cycleLabel: string; startDate: Date; endDate: Date }[] {
   const earliestDate = getEarliestDate(groupCreatedAt, transactions);
   let startMonday = getMondayOfDate(earliestDate);
   const currentMonday = getMondayOfDate(new Date());
@@ -84,7 +129,7 @@ export function generateWeeks(groupCreatedAt: string, transactions: Transaction[
     startMonday = twelveWeeksAgo;
   }
 
-  const weeks: { label: string; startDate: Date; endDate: Date }[] = [];
+  const weeks: { label: string; cycleLabel: string; startDate: Date; endDate: Date }[] = [];
   const iterDate = new Date(startMonday);
 
   // Helper to format date in Thai
@@ -95,19 +140,22 @@ export function generateWeeks(groupCreatedAt: string, transactions: Transaction[
     });
   };
 
-  // Generate weeks up to current week
+  // Generate weeks up to current week (Cut-off: Monday 00:01:00 to next Monday 00:00:59)
   while (iterDate <= currentMonday) {
-    const startOfWeek = new Date(iterDate); // Monday 00:01:00
+    const startOfWeek = new Date(iterDate); // Monday 00:01:00.000
     const endOfWeek = new Date(iterDate);
     endOfWeek.setDate(iterDate.getDate() + 7);
-    endOfWeek.setHours(0, 0, 59, 999); // Next Monday 00:00:59
+    endOfWeek.setHours(0, 0, 59, 999); // Next Monday 00:00:59.999
 
-    const endDisplay = new Date(startOfWeek);
-    endDisplay.setDate(startOfWeek.getDate() + 6);
+    const endSunday = new Date(startOfWeek);
+    endSunday.setDate(startOfWeek.getDate() + 6);
 
-    const label = `${formatDate(startOfWeek)} - ${formatDate(endDisplay)}`;
+    const label = `${formatDate(startOfWeek)} - ${formatDate(endSunday)}`;
+    const cycleLabel = `จ. ${formatDate(startOfWeek)} 00:01 น. - จ. ${formatDate(endOfWeek)} 00:00 น.`;
+
     weeks.push({
       label,
+      cycleLabel,
       startDate: startOfWeek,
       endDate: endOfWeek,
     });
@@ -123,11 +171,15 @@ export function generateWeeks(groupCreatedAt: string, transactions: Transaction[
     endOfWeek.setDate(currentMonday.getDate() + 7);
     endOfWeek.setHours(0, 0, 59, 999);
 
-    const endDisplay = new Date(startOfWeek);
-    endDisplay.setDate(startOfWeek.getDate() + 6);
+    const endSunday = new Date(startOfWeek);
+    endSunday.setDate(startOfWeek.getDate() + 6);
+
+    const label = `${formatDate(startOfWeek)} - ${formatDate(endSunday)}`;
+    const cycleLabel = `จ. ${formatDate(startOfWeek)} 00:01 น. - จ. ${formatDate(endOfWeek)} 00:00 น.`;
 
     weeks.push({
-      label: `${formatDate(startOfWeek)} - ${formatDate(endDisplay)}`,
+      label,
+      cycleLabel,
       startDate: startOfWeek,
       endDate: endOfWeek,
     });
@@ -191,6 +243,7 @@ export function calculateMemberCarryover(
 
     weeksHistory.push({
       label: spec.label,
+      cycleLabel: spec.cycleLabel,
       startDate: spec.startDate,
       endDate: spec.endDate,
       rawPaid,

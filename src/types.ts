@@ -9,6 +9,16 @@ export interface Group {
   leaderPasscode?: string; // รหัสผ่านสำหรับเพิ่ม/เป็นหัวหน้ากลุ่มร่วม
   coLeaders?: string[]; // รายชื่อหัวหน้ากลุ่มร่วม
   createdAt: string;
+  // Discord Webhook integration
+  discordWebhookUrl?: string;
+  discordWebhookEnabled?: boolean;
+  discordNotifyOnSlip?: boolean;
+  discordNotifyOnManualTx?: boolean;
+  discordSendSlipImage?: boolean; // ส่งรูปภาพสลิปแนบไปด้วยใน Discord Webhook
+  // Discord Bot integration
+  discordBotToken?: string;
+  discordBotEnabled?: boolean;
+  discordChannelId?: string;
 }
 
 export interface Member {
@@ -34,6 +44,7 @@ export interface Transaction {
   isAiParsed: boolean;
   notes?: string;
   createdAt: string;
+  slipImageUrl?: string; // แนบรูปสลิปโอนเงิน (ดูได้เฉพาะหัวหน้ากลุ่ม)
 }
 
 export interface ParsedSlipResult {

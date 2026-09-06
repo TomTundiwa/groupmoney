@@ -1,12 +1,13 @@
 import React, { useState } from "react";
 import { Transaction, Member } from "../types";
-import { FileText, Plus, Search, Trash2, SlidersHorizontal, Sparkles, PlusCircle, Lock, Edit2, Check, X, ChevronLeft, ChevronRight } from "lucide-react";
+import { FileText, Plus, Search, Trash2, SlidersHorizontal, Sparkles, PlusCircle, Lock, Edit2, Check, X, ChevronLeft, ChevronRight, FileImage, Image as ImageIcon } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import SlipImageViewerModal from "./SlipImageViewerModal";
 
 interface TransactionHistoryProps {
   transactions: Transaction[];
   members: Member[];
-  onAddManualTransaction: (amount: number, memberId: string, bank: string, notes?: string) => void;
+  onAddManualTransaction: (amount: number, memberId: string, bank: string, notes?: string, slipImageUrl?: string) => void;
   onDeleteTransaction: (id: string) => void;
   onEditTransaction?: (
     id: string,
@@ -33,6 +34,7 @@ export default function TransactionHistory({
   const [showAddForm, setShowAddForm] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterType, setFilterType] = useState<"all" | "ai" | "manual">("all");
+  const [selectedSlipTx, setSelectedSlipTx] = useState<Transaction | null>(null);
 
   // Pagination State (หน้าต่างละ 5-7 อัน)
   const [currentPage, setCurrentPage] = useState(1);
@@ -43,17 +45,19 @@ export default function TransactionHistory({
   const [manualMemberId, setManualMemberId] = useState("");
   const [manualBank, setManualBank] = useState("เงินสด");
   const [manualNotes, setManualNotes] = useState("");
+  const [manualSlipImage, setManualSlipImage] = useState<string | null>(null);
 
   const handleAddSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!manualMemberId || manualAmount <= 0) return;
-    onAddManualTransaction(manualAmount, manualMemberId, manualBank, manualNotes);
+    onAddManualTransaction(manualAmount, manualMemberId, manualBank, manualNotes, manualSlipImage || undefined);
 
     // Reset fields
     setManualAmount(0);
     setManualMemberId("");
     setManualBank("เงินสด");
     setManualNotes("");
+    setManualSlipImage(null);
     setShowAddForm(false);
   };
 
@@ -119,9 +123,17 @@ export default function TransactionHistory({
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6" id="transaction-history-section">
       <div className="flex items-center justify-between border-b border-slate-800 pb-4 mb-4">
-        <div className="flex items-center gap-2">
-          <FileText className="w-5 h-5 text-emerald-400" />
-          <h2 className="text-lg font-sans font-bold text-slate-100">ประวัติการโอนเงินทั้งหมด</h2>
+        <div className="flex flex-col">
+          <div className="flex items-center gap-2">
+            <FileText className="w-5 h-5 text-emerald-400" />
+            <h2 className="text-lg font-sans font-bold text-slate-100">ประวัติการโอนเงินทั้งหมด</h2>
+          </div>
+          {isLeader && (
+            <p className="text-[11px] text-emerald-400/90 font-sans mt-0.5 flex items-center gap-1">
+              <span>💡</span>
+              <span>คลิกที่รายการโอนเงินใดก็ได้ เพื่อเปิดดูรูปภาพสลิปที่แนบมาได้ทันที</span>
+            </p>
+          )}
         </div>
         {isLeader && (
           <button
@@ -202,6 +214,42 @@ export default function TransactionHistory({
                 placeholder="เช่น จ่ายค่าสุกี้ล่วงหน้า"
                 className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-xl text-xs text-slate-100 focus:outline-none focus:border-emerald-500 transition"
               />
+            </div>
+
+            <div>
+              <label className="block text-[10px] text-slate-400 mb-1 font-sans">
+                แนบรูปภาพสลิป (ไม่บังคับ - มีเฉพาะหัวหน้ากลุ่มที่ดูได้)
+              </label>
+              <div className="flex items-center gap-3">
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = () => setManualSlipImage(reader.result as string);
+                    reader.readAsDataURL(file);
+                  }}
+                  className="text-xs text-slate-400 file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-slate-200 hover:file:bg-slate-700 cursor-pointer"
+                />
+                {manualSlipImage && (
+                  <div className="flex items-center gap-2">
+                    <img
+                      src={manualSlipImage}
+                      alt="สลิปพรีวิว"
+                      className="w-7 h-7 object-cover rounded border border-slate-700"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setManualSlipImage(null)}
+                      className="text-[11px] text-rose-400 hover:text-rose-300 underline cursor-pointer"
+                    >
+                      ลบรูป
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="flex justify-end gap-2 text-xs font-sans">
@@ -293,6 +341,7 @@ export default function TransactionHistory({
                 <th className="py-3 font-medium">ชื่อคนโอนเงิน</th>
                 <th className="py-3 font-medium">วันเวลา</th>
                 <th className="py-3 font-medium">ช่องทาง/ธนาคาร</th>
+                <th className="py-3 font-medium text-center">สลิป</th>
                 <th className="py-3 font-medium">หมายเหตุ</th>
                 <th className="py-3 font-medium text-right">ยอดโอน</th>
                 <th className="py-3 text-right"></th>
@@ -345,6 +394,21 @@ export default function TransactionHistory({
                         className="w-full px-1.5 py-1 bg-slate-900 border border-slate-700 rounded text-xs text-slate-100 focus:outline-none focus:border-emerald-500"
                       />
                     </td>
+                    {/* Slip info in edit mode */}
+                    <td className="py-2 pr-2 text-center text-slate-500 font-sans text-[11px]">
+                      {tx.slipImageUrl ? (
+                        <button
+                          type="button"
+                          onClick={() => setSelectedSlipTx(tx)}
+                          className="text-emerald-400 hover:text-emerald-300 inline-flex items-center gap-1 font-sans text-xs underline cursor-pointer"
+                          title="ดูรูปสลิป"
+                        >
+                          <FileImage className="w-3.5 h-3.5" /> ดูสลิป
+                        </button>
+                      ) : (
+                        <span className="text-slate-600">-</span>
+                      )}
+                    </td>
                     {/* Notes */}
                     <td className="py-2 pr-2">
                       <input
@@ -370,14 +434,14 @@ export default function TransactionHistory({
                       <div className="flex items-center justify-end gap-1">
                         <button
                           onClick={() => handleSaveEditTx(tx.id)}
-                          className="p-1 bg-emerald-500 text-slate-950 rounded hover:bg-emerald-400 transition"
+                          className="p-1 bg-emerald-500 text-slate-950 rounded hover:bg-emerald-400 transition cursor-pointer"
                           title="บันทึก"
                         >
                           <Check className="w-3.5 h-3.5" />
                         </button>
                         <button
                           onClick={handleCancelEditTx}
-                          className="p-1 bg-slate-700 text-slate-300 rounded hover:bg-slate-600 transition"
+                          className="p-1 bg-slate-700 text-slate-300 rounded hover:bg-slate-600 transition cursor-pointer"
                           title="ยกเลิก"
                         >
                           <X className="w-3.5 h-3.5" />
@@ -386,7 +450,17 @@ export default function TransactionHistory({
                     </td>
                   </tr>
                 ) : (
-                  <tr key={tx.id ? `tx-row-${tx.id}` : `tx-row-${txIdx}`} className="hover:bg-slate-800/10 font-sans group">
+                  <tr
+                    key={tx.id ? `tx-row-${tx.id}` : `tx-row-${txIdx}`}
+                    onClick={(e) => {
+                      if ((e.target as HTMLElement).closest("button[data-action]")) {
+                        return;
+                      }
+                      setSelectedSlipTx(tx);
+                    }}
+                    className="hover:bg-slate-800/40 font-sans group cursor-pointer transition-colors duration-150"
+                    title={isLeader ? "คลิกที่รายการนี้เพื่อเปิดดูรูปสลิปที่แนบมา" : "คลิกเพื่อดูรายละเอียดรายการโอน"}
+                  >
                     <td className="py-3 pr-2">
                       <div className="flex items-center gap-1.5">
                         <span className="font-semibold text-slate-200">
@@ -409,6 +483,39 @@ export default function TransactionHistory({
                     <td className="py-3 pr-2 text-slate-400 font-mono">
                       {tx.bank}
                     </td>
+                    <td className="py-3 pr-2 text-center whitespace-nowrap">
+                      {tx.slipImageUrl ? (
+                        isLeader ? (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedSlipTx(tx);
+                            }}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 hover:text-emerald-300 border border-emerald-500/30 rounded-lg text-xs font-sans font-semibold transition cursor-pointer shadow-sm active:scale-95"
+                            title="ตรวจสอบรูปสลิปโอนเงิน (เฉพาะหัวหน้าก๊วน)"
+                          >
+                            <FileImage className="w-3.5 h-3.5 text-emerald-400" />
+                            <span>ดูสลิป</span>
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedSlipTx(tx);
+                            }}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-800/80 hover:bg-slate-800 text-slate-400 hover:text-slate-300 border border-slate-700/60 rounded-lg text-xs font-sans transition cursor-pointer"
+                            title="มีรูปสลิปแนบมา (เฉพาะหัวหน้ากลุ่มเท่านั้นที่ดูได้)"
+                          >
+                            <Lock className="w-3 h-3 text-amber-400/80" />
+                            <span>สลิป 🔒</span>
+                          </button>
+                        )
+                      ) : (
+                        <span className="text-[11px] text-slate-600 font-sans">-</span>
+                      )}
+                    </td>
                     <td className="py-3 pr-2 text-slate-400 truncate max-w-[150px]" title={tx.notes}>
                       {tx.notes || "-"}
                     </td>
@@ -419,15 +526,23 @@ export default function TransactionHistory({
                       {isLeader && (
                         <div className="opacity-100 md:opacity-0 md:group-hover:opacity-100 flex items-center justify-end gap-1">
                           <button
-                            onClick={() => handleStartEditTx(tx)}
-                            className="p-1 text-slate-500 hover:text-emerald-400 hover:bg-emerald-500/10 rounded-lg transition duration-150"
+                            data-action="edit"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleStartEditTx(tx);
+                            }}
+                            className="p-1 text-slate-500 hover:text-emerald-400 hover:bg-emerald-500/10 rounded-lg transition duration-150 cursor-pointer"
                             title="แก้ไขรายการ"
                           >
                             <Edit2 className="w-3.5 h-3.5" />
                           </button>
                           <button
-                            onClick={() => onDeleteTransaction(tx.id)}
-                            className="p-1 text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition duration-150"
+                            data-action="delete"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onDeleteTransaction(tx.id);
+                            }}
+                            className="p-1 text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition duration-150 cursor-pointer"
                             title="ลบรายการโอน"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -515,6 +630,13 @@ export default function TransactionHistory({
           </div>
         </div>
       )}
+      {/* Slip Image Viewer Modal (Leader-only full view / non-leader restricted view) */}
+      <SlipImageViewerModal
+        transaction={selectedSlipTx}
+        members={members}
+        isLeader={isLeader}
+        onClose={() => setSelectedSlipTx(null)}
+      />
     </div>
   );
 }

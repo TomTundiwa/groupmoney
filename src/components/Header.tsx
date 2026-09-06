@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { Group, Member, Transaction } from "../types";
-import { Plus, Users, Landmark, PiggyBank, Target, ChevronDown, Lock, Unlock, ShieldAlert, ShieldCheck, Trash2, Key, Copy, Check, Smartphone, RefreshCw, Laptop, Settings, Crown, Edit2, Sparkles, DollarSign } from "lucide-react";
+import { Plus, Users, Landmark, PiggyBank, Target, ChevronDown, Lock, Unlock, ShieldAlert, ShieldCheck, Trash2, Key, Copy, Check, Smartphone, RefreshCw, Laptop, Settings, Crown, Edit2, Sparkles, DollarSign, Radio, Bot } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { calculateMemberCarryover } from "../lib/carryover";
 
@@ -340,6 +340,28 @@ export default function Header({
                    <span>👑 หัวหน้าก๊วน</span>
                  </div>
                ) : null}
+
+               {activeGroup?.discordBotEnabled && (
+                 <div
+                   className="flex items-center gap-1.5 bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 px-3 py-2 rounded-xl text-xs font-sans font-bold shadow-sm"
+                   title="บอท Discord เปิดใช้งานแล้ว รองรับคำสั่ง !เช็ค (ปัจจุบัน), !เช็คก่อน (อาทิตย์ก่อน) และ !ยอดเงิน"
+                 >
+                   <Bot className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                   <span className="hidden sm:inline">Bot: !เช็ค / !เช็คก่อน / !ยอดเงิน</span>
+                   <span className="sm:hidden">Bot !เช็ค</span>
+                 </div>
+               )}
+
+               {activeGroup?.discordWebhookEnabled && activeGroup?.discordWebhookUrl && (
+                 <div
+                   className="flex items-center gap-1.5 bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 px-3 py-2 rounded-xl text-xs font-sans font-bold shadow-sm"
+                   title="ระบบเชื่อมต่อกับ Discord Webhook เรียบร้อยแล้ว (จะแจ้งเตือนเมื่อมียอดเงินเข้า)"
+                 >
+                   <Radio className="w-3.5 h-3.5 text-emerald-400 animate-pulse shrink-0" />
+                   <span className="hidden sm:inline">Discord Webhook</span>
+                   <span className="sm:hidden">Webhook</span>
+                 </div>
+               )}
 
                {onDeleteActiveGroup && isLeader && (
                  <button

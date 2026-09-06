@@ -9,7 +9,8 @@ interface SlipUploaderProps {
     parsed: ParsedSlipResult,
     memberId: string,
     createMemberName: string | null,
-    createMemberNickname: string | null
+    createMemberNickname: string | null,
+    slipImageUrl?: string | null
   ) => void;
   activeGroupId: string;
   profileMemberId?: string;
@@ -30,6 +31,7 @@ export default function SlipUploader({
   const [loadingStep, setLoadingStep] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [slipImageBase64, setSlipImageBase64] = useState<string | null>(null);
 
   // Result form states
   const [parsedResult, setParsedResult] = useState<ParsedSlipResult | null>(null);
@@ -114,7 +116,11 @@ export default function SlipUploader({
 
     try {
       setLoadingStep("กำลังอัปโหลดและเตรียมไฟล์สลิป...");
-      const base64 = await convertToBase64(file);
+      const [base64, compressed] = await Promise.all([
+        convertToBase64(file),
+        compressImage(file),
+      ]);
+      setSlipImageBase64(compressed || base64);
 
       setLoadingStep("กำลังตรวจสอบสลิปด้วยระบบ SlipOK / Gemini AI...");
       const response = await fetch("/api/parse-slip", {
@@ -160,8 +166,12 @@ export default function SlipUploader({
 
     } catch (err: any) {
       console.error(err);
+      let msg = err.message || "ประเภทไฟล์หรือภาพไม่ชัด";
+      if (typeof msg === "string" && (msg.includes("503") || msg.includes("high demand") || msg.includes("UNAVAILABLE"))) {
+        msg = "ระบบ AI มีผู้ใช้งานหนาแน่นชั่วคราว กรุณาลองใหม่ในอีกสักครู่";
+      }
       setError(
-        `สแกนสลิปผ่าน AI ไม่สำเร็จ (${err.message || "ประเภทไฟล์หรือภาพไม่ชัด"}) แต่คุณสามารถกรอกรายละเอียดสลิปเพื่อบันทึกได้ทันที!`
+        `สแกนสลิปผ่าน AI ไม่สำเร็จ (${msg}) แต่คุณสามารถตรวจสอบ/กรอกรายละเอียดสลิปเพื่อบันทึกได้ทันที!`
       );
       
       // Open the manual entry form automatically pre-filled so the user is never blocked
@@ -179,6 +189,55 @@ export default function SlipUploader({
     } finally {
       setLoading(false);
     }
+  };
+
+  const compressImage = (file: File): Promise<string> => {
+    return new Promise((resolve) => {
+      if (!file.type.startsWith("image/")) {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => resolve("");
+        reader.readAsDataURL(file);
+        return;
+      }
+      const img = new Image();
+      const objectUrl = URL.createObjectURL(file);
+      img.onload = () => {
+        URL.revokeObjectURL(objectUrl);
+        let width = img.width;
+        let height = img.height;
+        const maxDim = 900;
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          } else {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL("image/jpeg", 0.75));
+        } else {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = () => resolve("");
+          reader.readAsDataURL(file);
+        }
+      };
+      img.onerror = () => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => resolve("");
+        reader.readAsDataURL(file);
+      };
+      img.src = objectUrl;
+    });
   };
 
   const convertToBase64 = (file: File): Promise<string> => {
@@ -253,7 +312,8 @@ export default function SlipUploader({
       parsedResult,
       createNewMember ? "new" : selectedMemberId,
       createNewMember ? parsedResult.senderName : null,
-      createNewMember ? newMemberNickname : null
+      createNewMember ? newMemberNickname : null,
+      slipImageBase64
     );
 
     // Show success info panel
@@ -283,6 +343,7 @@ export default function SlipUploader({
 
     // Reset Form
     setParsedResult(null);
+    setSlipImageBase64(null);
     setSelectedMemberId("");
     setCreateNewMember(false);
     setNewMemberNickname("");
@@ -482,8 +543,11 @@ export default function SlipUploader({
               </span>
               <button
                 type="button"
-                onClick={() => setParsedResult(null)}
-                className="text-xs text-slate-400 hover:text-slate-200 flex items-center gap-1 font-sans"
+                onClick={() => {
+                  setParsedResult(null);
+                  setSlipImageBase64(null);
+                }}
+                className="text-xs text-slate-400 hover:text-slate-200 flex items-center gap-1 font-sans cursor-pointer"
               >
                 <RefreshCw className="w-3.5 h-3.5" /> อัปสลิปใหม่
               </button>
@@ -617,18 +681,42 @@ export default function SlipUploader({
                 </div>
               </div>
 
+              {/* Attached Slip Preview & Privacy Notice */}
+              {slipImageBase64 && (
+                <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-3 flex items-center gap-3">
+                  <div className="w-12 h-14 bg-slate-900 rounded-lg overflow-hidden border border-slate-700/60 flex-shrink-0 flex items-center justify-center">
+                    <img
+                      src={slipImageBase64}
+                      alt="ตัวอย่างสลิป"
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                  <div className="space-y-0.5 text-xs font-sans min-w-0">
+                    <p className="font-semibold text-slate-200 flex items-center gap-1">
+                      <span className="text-emerald-400">✓</span> แนบรูปภาพสลิปสำเร็จ
+                    </p>
+                    <p className="text-[11px] text-slate-400 leading-snug">
+                      🔒 สลิปนี้จะถูกจัดเก็บอย่างปลอดภัย และ<strong className="text-amber-300">มีแค่หัวหน้ากลุ่มเท่านั้นที่สามารถเปิดดูได้</strong>
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {/* Confirm Actions */}
               <div className="flex items-center justify-end gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => setParsedResult(null)}
-                  className="px-4 py-2 text-xs text-slate-400 hover:text-slate-200 font-medium font-sans"
+                  onClick={() => {
+                    setParsedResult(null);
+                    setSlipImageBase64(null);
+                  }}
+                  className="px-4 py-2 text-xs text-slate-400 hover:text-slate-200 font-medium font-sans cursor-pointer"
                 >
                   ยกเลิก
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl font-bold text-xs flex items-center gap-1 shadow-md font-sans transition"
+                  className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl font-bold text-xs flex items-center gap-1 shadow-md font-sans transition cursor-pointer"
                   id="confirm-slip-btn"
                 >
                   <Check className="w-4 h-4" /> ยืนยันบันทึกยอดเงิน

@@ -1,8 +1,9 @@
 import React, { useState } from "react";
 import { Member, Transaction } from "../types";
-import { Users, Plus, Search, ChevronRight, UserCheck, AlertTriangle, Sparkles, Trash2, Lock, Edit2, Check, X, Calendar, Clock, Landmark, CreditCard, Info, Award, ArrowRightLeft, Coins, History, Zap } from "lucide-react";
+import { Users, Plus, Search, ChevronRight, UserCheck, AlertTriangle, Sparkles, Trash2, Lock, Edit2, Check, X, Calendar, Clock, Landmark, CreditCard, Info, Award, ArrowRightLeft, Coins, History, Zap, FileImage } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { calculateMemberCarryover, MemberCarryoverResult } from "../lib/carryover";
+import SlipImageViewerModal from "./SlipImageViewerModal";
 
 interface MemberManagerProps {
   members: Member[];
@@ -49,6 +50,7 @@ export default function MemberManager({
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<"default" | "unpaid" | "paid" | "alphabetical">("default");
+  const [selectedSlipTx, setSelectedSlipTx] = useState<Transaction | null>(null);
 
   // Edit States
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -991,7 +993,9 @@ export default function MemberManager({
                       {selectedMemberTxs.map((tx) => (
                         <div
                           key={tx.id}
-                          className="flex items-center justify-between p-3 bg-slate-950/40 border border-slate-800/60 rounded-xl text-xs hover:border-slate-800 transition"
+                          onClick={() => setSelectedSlipTx(tx)}
+                          className="flex items-center justify-between p-3 bg-slate-950/40 border border-slate-800/60 rounded-xl text-xs hover:border-emerald-500/40 hover:bg-slate-900/60 transition cursor-pointer group"
+                          title={isLeader ? "คลิกเพื่อดูรูปสลิปที่แนบมา" : "คลิกเพื่อดูรายละเอียดรายการโอน"}
                         >
                           <div className="flex items-center gap-2.5 min-w-0">
                             <div className="p-2 bg-slate-900 border border-slate-800 rounded-lg text-emerald-400 flex-shrink-0">
@@ -1012,19 +1016,51 @@ export default function MemberManager({
                             </div>
                           </div>
 
-                          <div className="text-right flex-shrink-0 pl-2">
-                            <p className="font-bold font-mono text-emerald-400 text-xs">
-                              +฿{tx.amount.toLocaleString("th-TH")}
-                            </p>
-                            {tx.isAiParsed ? (
-                              <span className="text-[8px] font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/15 px-1 py-0.2 rounded font-sans">
-                                AI สแกนผ่าน
-                              </span>
-                            ) : (
-                              <span className="text-[8px] font-semibold text-slate-500 bg-slate-850 border border-slate-800 px-1 py-0.2 rounded font-sans">
-                                คีย์มือ
-                              </span>
+                          <div className="flex items-center gap-2 flex-shrink-0 pl-2">
+                            {tx.slipImageUrl && (
+                              isLeader ? (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedSlipTx(tx);
+                                  }}
+                                  className="px-2 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg text-[10px] font-sans font-medium flex items-center gap-1 transition cursor-pointer shadow-sm active:scale-95"
+                                  title="ดูรูปสลิปโอนเงิน (เฉพาะหัวหน้าก๊วน)"
+                                >
+                                  <FileImage className="w-3 h-3 text-emerald-400" />
+                                  <span>ดูสลิป</span>
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedSlipTx(tx);
+                                  }}
+                                  className="px-2 py-1 bg-slate-850 hover:bg-slate-800 text-slate-400 border border-slate-700/60 rounded-lg text-[10px] font-sans flex items-center gap-1 transition cursor-pointer"
+                                  title="มีรูปภาพสลิป (เฉพาะหัวหน้ากลุ่มเท่านั้นที่ดูได้)"
+                                >
+                                  <Lock className="w-2.5 h-2.5 text-amber-400/80" />
+                                  <span>สลิป 🔒</span>
+                                </button>
+                              )
                             )}
+
+                            <div className="text-right">
+                              <p className="font-bold font-mono text-emerald-400 text-xs">
+                                +฿{tx.amount.toLocaleString("th-TH")}
+                              </p>
+                              {tx.isAiParsed ? (
+                                <span className="text-[8px] font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/15 px-1 py-0.2 rounded font-sans">
+                                  AI สแกนผ่าน
+                                </span>
+                              ) : (
+                                <span className="text-[8px] font-semibold text-slate-500 bg-slate-850 border border-slate-800 px-1 py-0.2 rounded font-sans">
+                                  คีย์มือ
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </div>
                       ))}
@@ -1038,7 +1074,7 @@ export default function MemberManager({
                 <button
                   type="button"
                   onClick={() => setSelectedMemberId(null)}
-                  className="px-5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold rounded-xl text-xs transition"
+                  className="px-5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold rounded-xl text-xs transition cursor-pointer"
                 >
                   ปิดหน้าต่าง
                 </button>
@@ -1047,6 +1083,14 @@ export default function MemberManager({
           </div>
         )}
       </AnimatePresence>
+
+      {/* Slip Image Viewer Modal */}
+      <SlipImageViewerModal
+        transaction={selectedSlipTx}
+        members={members}
+        isLeader={isLeader}
+        onClose={() => setSelectedSlipTx(null)}
+      />
     </div>
   );
 }

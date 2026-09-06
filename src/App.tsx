@@ -5,7 +5,7 @@ import WeeklyChart from "./components/WeeklyChart";
 import SlipUploader from "./components/SlipUploader";
 import MemberManager from "./components/MemberManager";
 import TransactionHistory from "./components/TransactionHistory";
-import { HelpCircle, Landmark, Sparkles, ShieldAlert, ShieldCheck, Trash2, Key, Share2, Copy, Check, Settings, Crown, Users, Pencil, AlertTriangle, RotateCcw } from "lucide-react";
+import { HelpCircle, Landmark, Sparkles, ShieldAlert, ShieldCheck, Trash2, Key, Share2, Copy, Check, Settings, Crown, Users, Pencil, AlertTriangle, RotateCcw, Radio, Send, Bell, Bot, Terminal, ExternalLink, MessageSquareCode, Eye, Play } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { collection, doc, getDoc, setDoc, deleteDoc, updateDoc, onSnapshot, writeBatch, deleteField, addDoc } from "firebase/firestore";
 import { db } from "./lib/firebase";
@@ -77,6 +77,24 @@ export default function App() {
   const [claimLeaderPasscodeInput, setClaimLeaderPasscodeInput] = useState("");
   const [claimLeaderError, setClaimLeaderError] = useState("");
   const [claimLeaderSuccess, setClaimLeaderSuccess] = useState(false);
+
+  // Discord Webhook & Bot states
+  const [editDiscordWebhookUrl, setEditDiscordWebhookUrl] = useState("");
+  const [editDiscordWebhookEnabled, setEditDiscordWebhookEnabled] = useState(false);
+  const [editDiscordNotifyOnSlip, setEditDiscordNotifyOnSlip] = useState(true);
+  const [editDiscordNotifyOnManualTx, setEditDiscordNotifyOnManualTx] = useState(true);
+  const [editDiscordSendSlipImage, setEditDiscordSendSlipImage] = useState(true);
+  const [editDiscordBotToken, setEditDiscordBotToken] = useState("");
+  const [editDiscordBotEnabled, setEditDiscordBotEnabled] = useState(false);
+  const [editDiscordChannelId, setEditDiscordChannelId] = useState("");
+  const [discordBotConnecting, setDiscordBotConnecting] = useState(false);
+  const [discordBotStatus, setDiscordBotStatus] = useState<{ isConnected: boolean; botUsername?: string } | null>(null);
+  const [discordTesting, setDiscordTesting] = useState(false);
+  const [discordTestResult, setDiscordTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [commandPreviewCmd, setCommandPreviewCmd] = useState<string | null>(null);
+  const [commandPreviewData, setCommandPreviewData] = useState<any | null>(null);
+  const [commandPreviewLoading, setCommandPreviewLoading] = useState(false);
+  const [commandSendSuccess, setCommandSendSuccess] = useState<string | null>(null);
 
   const [unlockedGroupIds, setUnlockedGroupIds] = useState<string[]>(() => {
     try {
@@ -736,12 +754,77 @@ export default function App() {
     }
   };
 
+  // Send Discord webhook notification when a transaction is added
+  const sendDiscordTransactionNotification = async (params: {
+    memberId: string;
+    amount: number;
+    bank: string;
+    date: string;
+    time: string;
+    notes?: string;
+    isAiParsed: boolean;
+    hasSlipImage: boolean;
+    slipImageUrl?: string;
+    overrideMemberNickname?: string;
+    overrideMemberName?: string;
+  }) => {
+    const currentGroup = groups.find((g) => g.id === activeGroupId);
+    if (!currentGroup?.discordWebhookUrl || !currentGroup?.discordWebhookEnabled) {
+      return;
+    }
+    if (params.isAiParsed && currentGroup.discordNotifyOnSlip === false) {
+      return;
+    }
+    if (!params.isAiParsed && currentGroup.discordNotifyOnManualTx === false) {
+      return;
+    }
+
+    const member = members.find((m) => m.id === params.memberId);
+    const memberNickname = params.overrideMemberNickname || member?.nickname || "สมาชิก";
+    const memberName = params.overrideMemberName || member?.name || memberNickname;
+
+    const pastMemberTxs = transactions.filter(
+      (t) => t.memberId === params.memberId && t.groupId === activeGroupId
+    );
+    const newTotal = pastMemberTxs.reduce((sum, t) => sum + t.amount, 0) + params.amount;
+    const target = currentGroup.targetAmountPerMember || 0;
+    const progressPercent = target > 0 ? Math.round((newTotal / target) * 100) : 0;
+
+    try {
+      await fetch("/api/discord/notify-transaction", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          webhookUrl: currentGroup.discordWebhookUrl,
+          groupName: currentGroup.name,
+          memberNickname,
+          memberName,
+          amount: params.amount,
+          bank: params.bank,
+          date: params.date,
+          time: params.time,
+          notes: params.notes,
+          method: params.isAiParsed ? "AI สแกนสลิป" : "บันทึกด้วยมือ",
+          memberTotalPaid: newTotal,
+          targetAmount: target,
+          progressPercent,
+          hasSlipImage: params.hasSlipImage,
+          slipImageUrl: currentGroup.discordSendSlipImage !== false ? params.slipImageUrl : undefined,
+        }),
+      });
+      console.log("[DISCORD] Successfully notified Discord webhook!");
+    } catch (err) {
+      console.warn("[DISCORD] Error sending Discord notification:", err);
+    }
+  };
+
   // Handle successful Slip Reading (Gemini AI or custom manual matching)
   const handleSlipUploadSuccess = async (
     parsed: ParsedSlipResult,
     memberId: string,
     createMemberName: string | null,
-    createMemberNickname: string | null
+    createMemberNickname: string | null,
+    slipImageUrl?: string | null
   ) => {
     let finalMemberId = memberId;
 
@@ -772,15 +855,37 @@ export default function App() {
         isAiParsed: true,
         notes: "สแกนสลิปโอนเงินด้วยระบบ AI อัตโนมัติ",
         createdAt: new Date().toISOString(),
+        ...(slipImageUrl ? { slipImageUrl } : {}),
       };
 
       await setDoc(doc(db, "transactions", newTransaction.id), newTransaction);
+
+      // Trigger Discord Webhook Notification in background
+      sendDiscordTransactionNotification({
+        memberId: finalMemberId,
+        amount: parsed.amount,
+        bank: parsed.bank,
+        date: parsed.date,
+        time: parsed.time,
+        notes: "สแกนสลิปโอนเงินด้วยระบบ AI อัตโนมัติ",
+        isAiParsed: true,
+        hasSlipImage: !!slipImageUrl,
+        slipImageUrl: slipImageUrl || undefined,
+        overrideMemberNickname: createMemberNickname || undefined,
+        overrideMemberName: createMemberName || undefined,
+      });
     } catch (err) {
       console.error("Error in slip upload success handling:", err);
     }
   };
 
-  const handleAddManualTransaction = async (amount: number, memberId: string, bank: string, notes?: string) => {
+  const handleAddManualTransaction = async (
+    amount: number,
+    memberId: string,
+    bank: string,
+    notes?: string,
+    slipImageUrl?: string
+  ) => {
     if (!isLeader) {
       alert("เฉพาะหัวหน้าก๊วนเท่านั้นที่สามารถบันทึกยอดเงินแบบกรอกมือได้");
       return;
@@ -798,10 +903,24 @@ export default function App() {
       isAiParsed: false,
       notes: notes || "",
       createdAt: new Date().toISOString(),
+      ...(slipImageUrl ? { slipImageUrl } : {}),
     };
 
     try {
       await setDoc(doc(db, "transactions", newTransaction.id), newTransaction);
+
+      // Trigger Discord Webhook Notification in background
+      sendDiscordTransactionNotification({
+        memberId,
+        amount,
+        bank,
+        date: newTransaction.date,
+        time: newTransaction.time,
+        notes,
+        isAiParsed: false,
+        hasSlipImage: !!slipImageUrl,
+        slipImageUrl: slipImageUrl || undefined,
+      });
     } catch (err) {
       console.error("Error adding manual transaction:", err);
     }
@@ -1008,9 +1127,37 @@ export default function App() {
             .split(",")
             .map((s) => s.trim())
             .filter(Boolean),
+          discordWebhookUrl: editDiscordWebhookUrl.trim(),
+          discordWebhookEnabled: editDiscordWebhookEnabled,
+          discordNotifyOnSlip: editDiscordNotifyOnSlip,
+          discordNotifyOnManualTx: editDiscordNotifyOnManualTx,
+          discordSendSlipImage: editDiscordSendSlipImage,
+          discordBotToken: editDiscordBotToken.trim(),
+          discordBotEnabled: editDiscordBotEnabled,
+          discordChannelId: editDiscordChannelId.trim(),
         },
         { merge: true }
       );
+
+      // If bot is enabled and token is present, connect automatically
+      if (editDiscordBotEnabled && editDiscordBotToken.trim()) {
+        fetch("/api/discord/bot/connect", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            groupId: activeGroupId,
+            botToken: editDiscordBotToken.trim(),
+            channelId: editDiscordChannelId.trim() || undefined,
+          }),
+        }).catch(() => {});
+      } else if (!editDiscordBotEnabled) {
+        fetch("/api/discord/bot/disconnect", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ groupId: activeGroupId }),
+        }).catch(() => {});
+      }
+
       setEditGroupSuccess(true);
       setEditGroupError("");
       setTimeout(() => {
@@ -1020,6 +1167,120 @@ export default function App() {
     } catch (err) {
       console.error("Error updating group:", err);
       setEditGroupError("เกิดข้อผิดพลาดในการบันทึกข้อมูลกลุ่ม");
+    }
+  };
+
+  const handleTestDiscordWebhook = async () => {
+    if (!editDiscordWebhookUrl.trim()) {
+      setDiscordTestResult({ success: false, message: "กรุณาระบุ Discord Webhook URL ก่อนกดทดสอบ" });
+      return;
+    }
+    setDiscordTesting(true);
+    setDiscordTestResult(null);
+    try {
+      const res = await fetch("/api/discord/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          webhookUrl: editDiscordWebhookUrl.trim(),
+          groupName: editGroupName.trim() || activeGroup?.name || "ก๊วนออมเงิน",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setDiscordTestResult({
+          success: false,
+          message: data.error || "ส่งข้อความไม่สำเร็จ โปรดตรวจสอบ Webhook URL",
+        });
+      } else {
+        setDiscordTestResult({
+          success: true,
+          message: data.message || "ส่งข้อความทดสอบสำเร็จ! ตรวจสอบในห้อง Discord ได้ทันที",
+        });
+      }
+    } catch (err: any) {
+      setDiscordTestResult({
+        success: false,
+        message: err.message || "เกิดข้อผิดพลาดในการเชื่อมต่อไปยัง Discord",
+      });
+    } finally {
+      setDiscordTesting(false);
+    }
+  };
+
+  const handleConnectDiscordBot = async () => {
+    if (!editDiscordBotToken.trim()) {
+      setDiscordTestResult({ success: false, message: "กรุณาระบุ Discord Bot Token ก่อนกดเชื่อมต่อ" });
+      return;
+    }
+    setDiscordBotConnecting(true);
+    setDiscordTestResult(null);
+    try {
+      const res = await fetch("/api/discord/bot/connect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          groupId: activeGroupId,
+          botToken: editDiscordBotToken.trim(),
+          channelId: editDiscordChannelId.trim() || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setDiscordTestResult({ success: false, message: data.error || "เชื่อมต่อ Discord Bot ไม่สำเร็จ" });
+      } else {
+        setDiscordBotStatus({ isConnected: true, botUsername: data.botUsername });
+        setDiscordTestResult({ success: true, message: data.message });
+      }
+    } catch (err: any) {
+      setDiscordTestResult({ success: false, message: err.message || "เกิดข้อผิดพลาดในการเชื่อมต่อบอท" });
+    } finally {
+      setDiscordBotConnecting(false);
+    }
+  };
+
+  const handleDisconnectDiscordBot = async () => {
+    try {
+      await fetch("/api/discord/bot/disconnect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ groupId: activeGroupId }),
+      });
+      setDiscordBotStatus({ isConnected: false });
+      setDiscordTestResult({ success: true, message: "ตัดการเชื่อมต่อ Discord Bot เรียบร้อยแล้ว" });
+    } catch (err) {}
+  };
+
+  const handleRunDiscordCommand = async (command: string, sendToWebhook = false) => {
+    if (!activeGroupId) return;
+    setCommandPreviewCmd(command);
+    setCommandPreviewLoading(true);
+    setCommandSendSuccess(null);
+    try {
+      const res = await fetch("/api/discord/command", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          groupId: activeGroupId,
+          command,
+          sendToWebhook,
+        }),
+      });
+      const data = await res.json();
+      if (data.success && data.embed) {
+        setCommandPreviewData(data.embed);
+        if (sendToWebhook) {
+          if (data.webhookResult?.sent) {
+            setCommandSendSuccess(`ส่งผลลัพธ์คำสั่ง "${command}" ไปยังห้อง Discord สำเร็จแล้ว! 🎉`);
+          } else {
+            setCommandSendSuccess(`ไม่สามารถส่งเข้า Webhook ได้: ${data.webhookResult?.error || "โปรดตรวจสอบ Webhook URL"}`);
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Error previewing command:", err);
+    } finally {
+      setCommandPreviewLoading(false);
     }
   };
 
@@ -1068,6 +1329,29 @@ export default function App() {
     setEditGroupPasscode(group.passcode || "");
     setEditLeaderPasscode(group.leaderPasscode || "");
     setEditCoLeadersInput((group.coLeaders || []).join(", "));
+    setEditDiscordWebhookUrl(group.discordWebhookUrl || "");
+    setEditDiscordWebhookEnabled(group.discordWebhookEnabled ?? false);
+    setEditDiscordNotifyOnSlip(group.discordNotifyOnSlip ?? true);
+    setEditDiscordNotifyOnManualTx(group.discordNotifyOnManualTx ?? true);
+    setEditDiscordSendSlipImage(group.discordSendSlipImage ?? true);
+    setEditDiscordBotToken(group.discordBotToken || "");
+    setEditDiscordBotEnabled(group.discordBotEnabled ?? false);
+    setEditDiscordChannelId(group.discordChannelId || "");
+    setDiscordTestResult(null);
+    setCommandPreviewCmd(null);
+    setCommandPreviewData(null);
+    setCommandSendSuccess(null);
+
+    // Check bot connection status
+    fetch(`/api/discord/bot/status/${group.id}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success) {
+          setDiscordBotStatus({ isConnected: data.isConnected, botUsername: data.botUsername });
+        }
+      })
+      .catch(() => {});
+
     setEditGroupError("");
     setEditGroupSuccess(false);
     setClaimLeaderError("");
@@ -1681,7 +1965,359 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* SECTION 4: Member Management & Safe Deletion (Leader Only) */}
+                    {/* SECTION: Discord Webhook & Discord Bot Integration */}
+                    <div className="bg-slate-950/60 border border-indigo-500/30 rounded-2xl p-4 space-y-5">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-xs font-bold text-indigo-400 uppercase tracking-wider flex items-center gap-1.5">
+                          <Bot className="w-4 h-4 text-indigo-400" />
+                          <span>4. ระบบบอทและแจ้งเตือน Discord (Discord Bot & Webhook)</span>
+                        </h4>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 font-mono font-semibold border border-indigo-500/30">
+                          คำสั่ง !เช็ค & !ยอดเงิน
+                        </span>
+                      </div>
+
+                      <p className="text-[11px] text-slate-400 leading-relaxed font-sans">
+                        เมื่อมีคนพิมพ์คำสั่ง <span className="font-mono text-indigo-300 font-bold bg-indigo-950/80 px-1.5 py-0.5 rounded border border-indigo-500/30">!เช็ค</span> บอทจะสรุปทันทีว่าใครยังไม่โอนและค้างยอดเท่าไหร่ และพิมพ์ <span className="font-mono text-emerald-300 font-bold bg-emerald-950/80 px-1.5 py-0.5 rounded border border-emerald-500/30">!ยอดเงิน</span> เพื่อดูยอดเงินกองกลางสะสม
+                      </p>
+
+                      {/* SUB-SECTION 1: Discord Bot Setup */}
+                      <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-3.5 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Terminal className="w-3.5 h-3.5 text-indigo-400" />
+                            <span className="text-xs font-bold text-slate-200">Discord Bot (รับคำสั่งแชท !เช็ค / !ยอดเงิน)</span>
+                          </div>
+                          {discordBotStatus?.isConnected ? (
+                            <span className="flex items-center gap-1.5 text-[10px] font-semibold text-emerald-400 bg-emerald-950/80 border border-emerald-500/30 px-2 py-0.5 rounded-full">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                              <span>ออนไลน์ ({discordBotStatus.botUsername || "Bot"})</span>
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-semibold text-slate-400 bg-slate-800/80 border border-slate-700 px-2 py-0.5 rounded-full">
+                              ยังไม่ได้เชื่อมต่อบอท
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center justify-between py-1 border-y border-slate-800/60">
+                          <span className="text-xs text-slate-300">เปิดใช้งาน Discord Bot ตอบรับคำสั่ง</span>
+                          <label className="relative inline-flex items-center cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={editDiscordBotEnabled}
+                              onChange={(e) => setEditDiscordBotEnabled(e.target.checked)}
+                              className="sr-only peer"
+                            />
+                            <div className="w-9 h-5 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
+                            <span className="ml-2 text-xs font-semibold text-slate-300">
+                              {editDiscordBotEnabled ? "เปิด" : "ปิด"}
+                            </span>
+                          </label>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-300 mb-1">
+                            Discord Bot Token
+                          </label>
+                          <input
+                            type="password"
+                            value={editDiscordBotToken}
+                            onChange={(e) => setEditDiscordBotToken(e.target.value)}
+                            placeholder="MTAyNz... (วาง Bot Token จาก Discord Developer Portal)"
+                            className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs font-mono focus:outline-none focus:border-indigo-500 text-indigo-200 transition shadow-inner"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-300 mb-1">
+                            Discord Channel ID (ไม่บังคับ - ปล่อยว่างไว้เพื่อตอบทุกห้องที่เชิญบอทเข้า)
+                          </label>
+                          <input
+                            type="text"
+                            value={editDiscordChannelId}
+                            onChange={(e) => setEditDiscordChannelId(e.target.value)}
+                            placeholder="เช่น 123456789012345678 (คลิกขวาที่ห้องแชทแล้วเลือก Copy Channel ID)"
+                            className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs font-mono focus:outline-none focus:border-indigo-500 text-slate-300 transition shadow-inner"
+                          />
+                        </div>
+
+                        <div className="flex items-center gap-2 pt-1">
+                          <button
+                            type="button"
+                            disabled={discordBotConnecting || !editDiscordBotToken.trim()}
+                            onClick={handleConnectDiscordBot}
+                            className={`flex-1 py-2 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition ${
+                              discordBotConnecting || !editDiscordBotToken.trim()
+                                ? "bg-slate-800/60 text-slate-600 border border-slate-800 cursor-not-allowed"
+                                : "bg-indigo-600 hover:bg-indigo-500 text-white shadow-sm cursor-pointer active:scale-98"
+                            }`}
+                          >
+                            <Bot className="w-3.5 h-3.5" />
+                            <span>{discordBotConnecting ? "กำลังเชื่อมต่อ..." : "เชื่อมต่อ Discord Bot"}</span>
+                          </button>
+
+                          {discordBotStatus?.isConnected && (
+                            <button
+                              type="button"
+                              onClick={handleDisconnectDiscordBot}
+                              className="py-2 px-3 rounded-xl text-xs font-semibold bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 transition cursor-pointer"
+                            >
+                              ตัดการเชื่อมต่อ
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Bot Guide Card */}
+                        <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-3 text-[11px] text-slate-400 space-y-1.5">
+                          <p className="font-bold text-indigo-300 flex items-center gap-1.5">
+                            <ExternalLink className="w-3 h-3" />
+                            <span>วิธีสร้างและตั้งค่า Discord Bot ใน 3 ขั้นตอน:</span>
+                          </p>
+                          <ol className="list-decimal list-inside space-y-1 text-slate-300 leading-relaxed">
+                            <li>ไปที่ <strong className="text-white">discord.com/developers/applications</strong> &gt; กด <strong>New Application</strong></li>
+                            <li>ไปที่แท็บ <strong className="text-white">Bot</strong> &gt; เลื่อนลงมาเปิด <strong className="text-amber-300 underline">MESSAGE CONTENT INTENT</strong> (จำเป็นมากเพื่อให้บอทอ่านคำสั่งได้) &gt; กด <strong>Reset Token</strong> แล้วคัดลอกมาใส่ช่องข้างบน</li>
+                            <li>ไปที่แท็บ <strong className="text-white">OAuth2</strong> &gt; URL Generator &gt; ติ๊ก <strong className="text-white">bot</strong> &gt; ติ๊กสิทธิ์ <em>Send Messages, Embed Links, Read Message History</em> แล้วเปิดลิงก์เพื่อเชิญบอทเข้าเซิร์ฟเวอร์ Discord</li>
+                          </ol>
+                          <div className="pt-1.5 border-t border-slate-800 text-[10px] text-indigo-200/90 flex flex-wrap gap-x-3 gap-y-1">
+                            <span>💬 <strong className="text-rose-300 font-mono">!เช็ค</strong>: ยอดค้างปัจจุบัน</span>
+                            <span>💬 <strong className="text-amber-300 font-mono">!เช็คก่อน</strong>: ยอดค้างอาทิตย์ก่อน</span>
+                            <span>💬 <strong className="text-indigo-300 font-mono">!ยอดเงิน</strong>: ยอดเงินกองกลาง</span>
+                            <span>💬 <strong className="text-slate-300 font-mono">!คำสั่ง</strong>: ดูคำสั่งทั้งหมด</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* SUB-SECTION 2: Discord Webhook Integration */}
+                      <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-3.5 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Radio className="w-3.5 h-3.5 text-indigo-400 animate-pulse" />
+                            <span className="text-xs font-bold text-slate-200">Discord Webhook (แจ้งเตือนสลิป & ยอดเงินเข้า)</span>
+                          </div>
+                          <label className="relative inline-flex items-center cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={editDiscordWebhookEnabled}
+                              onChange={(e) => setEditDiscordWebhookEnabled(e.target.checked)}
+                              className="sr-only peer"
+                            />
+                            <div className="w-9 h-5 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
+                            <span className="ml-2 text-xs font-semibold text-slate-300">
+                              {editDiscordWebhookEnabled ? "เปิด" : "ปิด"}
+                            </span>
+                          </label>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-300 mb-1">
+                            Discord Webhook URL
+                          </label>
+                          <input
+                            type="url"
+                            value={editDiscordWebhookUrl}
+                            onChange={(e) => {
+                              setEditDiscordWebhookUrl(e.target.value);
+                              setDiscordTestResult(null);
+                            }}
+                            placeholder="https://discord.com/api/webhooks/..."
+                            className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs font-mono focus:outline-none focus:border-indigo-500 text-indigo-200 transition shadow-inner"
+                          />
+                          <p className="text-[10px] text-slate-500 mt-1">
+                            วิธีสร้าง: ใน Discord &gt; Edit Channel &gt; Integrations &gt; Webhooks &gt; New Webhook &gt; Copy Webhook URL
+                          </p>
+                        </div>
+
+                        <div className="space-y-1.5 pt-1">
+                          <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-300">
+                            <input
+                              type="checkbox"
+                              checked={editDiscordNotifyOnSlip}
+                              onChange={(e) => setEditDiscordNotifyOnSlip(e.target.checked)}
+                              className="rounded border-slate-700 text-indigo-500 focus:ring-indigo-500 bg-slate-800"
+                            />
+                            <span>แจ้งเตือนเมื่อสมาชิกสแกนสลิปผ่าน AI สำเร็จ</span>
+                          </label>
+                          <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-300">
+                            <input
+                              type="checkbox"
+                              checked={editDiscordNotifyOnManualTx}
+                              onChange={(e) => setEditDiscordNotifyOnManualTx(e.target.checked)}
+                              className="rounded border-slate-700 text-indigo-500 focus:ring-indigo-500 bg-slate-800"
+                            />
+                            <span>แจ้งเตือนเมื่อหัวหน้ากลุ่มบันทึกยอดเงินแบบกรอกมือ</span>
+                          </label>
+                          <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-300 bg-indigo-950/30 border border-indigo-500/20 p-2 rounded-xl">
+                            <input
+                              type="checkbox"
+                              checked={editDiscordSendSlipImage}
+                              onChange={(e) => setEditDiscordSendSlipImage(e.target.checked)}
+                              className="rounded border-slate-700 text-indigo-500 focus:ring-indigo-500 bg-slate-800"
+                            />
+                            <span className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-semibold text-indigo-200">📷 แนบรูปภาพสลิปส่งไปด้วยใน Discord</span>
+                              <span className="text-[10px] text-emerald-400 font-semibold bg-emerald-950/60 border border-emerald-500/30 px-1.5 py-0.5 rounded">
+                                แสดงรูปในแชททันที
+                              </span>
+                            </span>
+                          </label>
+                        </div>
+
+                        <button
+                          type="button"
+                          disabled={discordTesting || !editDiscordWebhookUrl.trim()}
+                          onClick={handleTestDiscordWebhook}
+                          className={`w-full py-2 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition ${
+                            discordTesting || !editDiscordWebhookUrl.trim()
+                              ? "bg-slate-800/60 text-slate-600 border border-slate-800 cursor-not-allowed"
+                              : "bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 hover:text-indigo-200 border border-indigo-500/40 cursor-pointer shadow-sm active:scale-98"
+                          }`}
+                        >
+                          <Send className="w-3.5 h-3.5" />
+                          <span>{discordTesting ? "กำลังส่งข้อความทดสอบ..." : "🔔 ทดสอบส่งข้อความไปยัง Discord (Test Webhook)"}</span>
+                        </button>
+                      </div>
+
+                      {/* SUB-SECTION 3: Interactive Command Simulator & Broadcast */}
+                      <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-3.5 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <MessageSquareCode className="w-3.5 h-3.5 text-indigo-400" />
+                            <span className="text-xs font-bold text-slate-200">ทดสอบผลลัพธ์คำสั่ง Discord และส่งรายงาน</span>
+                          </div>
+                          <span className="text-[10px] text-slate-400">กดเพื่อดูตัวอย่างการ์ด</span>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleRunDiscordCommand("!เช็ค")}
+                            className={`py-2 px-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer border ${
+                              commandPreviewCmd === "!เช็ค"
+                                ? "bg-rose-500/20 border-rose-500/50 text-rose-300 shadow-sm"
+                                : "bg-slate-950 hover:bg-slate-800 border-slate-800 text-slate-300"
+                            }`}
+                          >
+                            <span className="font-mono font-bold text-rose-400">!เช็ค</span>
+                            <span className="text-[11px]">(ยอดค้างปัจจุบัน)</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleRunDiscordCommand("!เช็คก่อน")}
+                            className={`py-2 px-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer border ${
+                              commandPreviewCmd === "!เช็คก่อน"
+                                ? "bg-amber-500/20 border-amber-500/50 text-amber-300 shadow-sm"
+                                : "bg-slate-950 hover:bg-slate-800 border-slate-800 text-slate-300"
+                            }`}
+                          >
+                            <span className="font-mono font-bold text-amber-400">!เช็คก่อน</span>
+                            <span className="text-[11px]">(ยอดค้างอาทิตย์ก่อน)</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleRunDiscordCommand("!ยอดเงิน")}
+                            className={`py-2 px-2.5 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer border ${
+                              commandPreviewCmd === "!ยอดเงิน"
+                                ? "bg-indigo-500/20 border-indigo-500/50 text-indigo-300 shadow-sm"
+                                : "bg-slate-950 hover:bg-slate-800 border-slate-800 text-slate-300"
+                            }`}
+                          >
+                            <span className="font-mono font-bold text-indigo-400">!ยอดเงิน</span>
+                            <span className="text-[11px]">(สรุปยอดกองกลาง)</span>
+                          </button>
+                        </div>
+
+                        {/* Loading Indicator */}
+                        {commandPreviewLoading && (
+                          <div className="py-4 text-center text-xs text-indigo-300 flex items-center justify-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-indigo-400 animate-ping"></span>
+                            <span>กำลังประมวลผลคำสั่ง Discord...</span>
+                          </div>
+                        )}
+
+                        {/* Discord Card Preview */}
+                        {commandPreviewData && !commandPreviewLoading && (
+                          <div className="mt-2 space-y-3">
+                            <div className="text-[10px] uppercase font-bold tracking-wider text-slate-400 flex items-center justify-between">
+                              <span>ตัวอย่างข้อความที่บอทจะตอบกลับใน Discord:</span>
+                              <span className="font-mono text-indigo-400">{commandPreviewCmd}</span>
+                            </div>
+
+                            {/* Realistic Discord Embed Mock */}
+                            <div className="bg-[#2B2D31] border-l-4 rounded-r-lg p-3.5 text-xs font-sans text-slate-200 shadow-lg space-y-2.5"
+                              style={{
+                                borderLeftColor: commandPreviewData.color ? `#${commandPreviewData.color.toString(16).padStart(6, "0")}` : "#5865F2",
+                              }}
+                            >
+                              <div className="font-bold text-white text-sm">
+                                {commandPreviewData.title}
+                              </div>
+
+                              {commandPreviewData.description && (
+                                <div className="text-slate-300 text-[11px] whitespace-pre-line leading-relaxed">
+                                  {commandPreviewData.description}
+                                </div>
+                              )}
+
+                              <div className="space-y-2 pt-1">
+                                {commandPreviewData.fields?.map((f: any, i: number) => (
+                                  <div key={i} className="bg-[#1E1F22]/70 rounded p-2 border border-white/5 space-y-1">
+                                    <div className="font-bold text-slate-300 text-[11px]">{f.name}</div>
+                                    <div className="text-slate-200 text-[11px] whitespace-pre-line leading-relaxed font-mono">
+                                      {f.value}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+
+                              {commandPreviewData.footer && (
+                                <div className="text-[10px] text-slate-400 pt-1 border-t border-white/10 flex items-center justify-between">
+                                  <span>{commandPreviewData.footer.text}</span>
+                                  <span>วันนี้ {new Date().toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" })}</span>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Broadcast / Send to Webhook button */}
+                            {editDiscordWebhookUrl.trim() && (
+                              <button
+                                type="button"
+                                onClick={() => handleRunDiscordCommand(commandPreviewCmd || "!เช็ค", true)}
+                                className="w-full py-2 px-3 rounded-xl text-xs font-semibold bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 hover:text-emerald-200 border border-emerald-500/40 transition flex items-center justify-center gap-2 cursor-pointer shadow-sm active:scale-98"
+                              >
+                                <Send className="w-3.5 h-3.5" />
+                                <span>🚀 ส่งการ์ด {commandPreviewCmd} นี้เข้าห้อง Discord ทันที (Broadcast)</span>
+                              </button>
+                            )}
+
+                            {commandSendSuccess && (
+                              <div className="p-2.5 rounded-xl text-xs bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center gap-2">
+                                <span>✓</span>
+                                <span>{commandSendSuccess}</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Toast / Result Message */}
+                      {discordTestResult && (
+                        <div
+                          className={`p-2.5 rounded-xl text-xs font-sans flex items-start gap-2 ${
+                            discordTestResult.success
+                              ? "bg-emerald-500/10 border border-emerald-500/30 text-emerald-400"
+                              : "bg-rose-500/10 border border-rose-500/30 text-rose-400"
+                          }`}
+                        >
+                          <span className="shrink-0">{discordTestResult.success ? "✓" : "⚠️"}</span>
+                          <span className="leading-tight">{discordTestResult.message}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* SECTION 5: Member Management & Safe Deletion (Leader Only) */}
                     <div className="bg-slate-950/60 border border-slate-800/80 rounded-2xl p-4 space-y-4">
                       <div className="flex items-center justify-between">
                         <h4 className="text-xs font-bold text-rose-400 uppercase tracking-wider flex items-center gap-1.5">
