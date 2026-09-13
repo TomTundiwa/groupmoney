@@ -1,6 +1,5 @@
 import express from "express";
 import path from "path";
-import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
 import heicConvert from "heic-convert";
@@ -9,6 +8,17 @@ dotenv.config();
 
 const app = express();
 const PORT = 3000;
+
+// Enable CORS and handle preflight requests for all endpoints
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization, x-requested-with");
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(204);
+  }
+  next();
+});
 
 // Set up large payload limits for base64 image transfers
 app.use(express.json({ limit: "15mb" }));
@@ -810,14 +820,36 @@ app.get("/sitemap.xml", (req, res) => {
   res.send(sitemap);
 });
 
+// Catch-all for undefined API endpoints to ensure valid JSON response instead of HTML
+app.all("/api/*", (req, res) => {
+  res.status(404).json({
+    success: false,
+    error: `API route not found: ${req.method} ${req.originalUrl}`,
+  });
+});
+
 // Vite middleware and asset serving
 async function startServer() {
-  if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
+  const isProduction =
+    process.env.NODE_ENV === "production" ||
+    (typeof __filename !== "undefined" && (__filename.endsWith(".cjs") || __filename.includes("dist")));
+
+  if (!isProduction) {
+    try {
+      const { createServer: createViteServer } = await import("vite");
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: "spa",
+      });
+      app.use(vite.middlewares);
+    } catch (viteErr) {
+      console.warn("Could not start Vite dev middleware, serving static dist instead:", viteErr);
+      const distPath = path.join(process.cwd(), "dist");
+      app.use(express.static(distPath));
+      app.get("*", (req, res) => {
+        res.sendFile(path.join(distPath, "index.html"));
+      });
+    }
   } else {
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));

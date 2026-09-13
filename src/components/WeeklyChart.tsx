@@ -26,20 +26,17 @@ export default function WeeklyChart({ transactions, members }: WeeklyChartProps)
     const weeks: WeekData[] = [];
     const now = new Date();
     const currentDay = now.getDay();
-    let diffToMonday = currentDay === 0 ? -6 : 1 - currentDay;
-    if (currentDay === 1 && now.getHours() === 0 && now.getMinutes() < 1) {
-      diffToMonday -= 7;
-    }
+    const diffToMonday = currentDay === 0 ? -6 : 1 - currentDay;
 
     // Generate weeks dynamically
     for (let i = 5; i >= 0; i--) {
       const startOfWeek = new Date();
       startOfWeek.setDate(now.getDate() + diffToMonday - i * 7);
-      startOfWeek.setHours(0, 1, 0, 0); // Monday 00:01:00
+      startOfWeek.setHours(0, 0, 0, 0); // Monday 00:00:00
 
       const endOfWeek = new Date(startOfWeek);
       endOfWeek.setDate(startOfWeek.getDate() + 7);
-      endOfWeek.setHours(0, 0, 59, 999); // Next Monday 00:00:59
+      endOfWeek.setHours(0, 0, 0, 0); // Next Monday 00:00:00 (exclusive)
 
       const endDisplay = new Date(startOfWeek);
       endDisplay.setDate(startOfWeek.getDate() + 6);
@@ -71,7 +68,7 @@ export default function WeeklyChart({ transactions, members }: WeeklyChartProps)
       const txDate = parseTxDateTime(tx);
 
       weeks.forEach((week) => {
-        if (txDate >= week.startDate && txDate <= week.endDate) {
+        if (txDate >= week.startDate && txDate < week.endDate) {
           week.amount += tx.amount;
           week.count += 1;
           week.txs.push(tx);

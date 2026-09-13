@@ -2,7 +2,7 @@ import { Member, Transaction } from "../types";
 
 export interface WeekCarryoverData {
   label: string; // "14 ก.ค. - 20 ก.ค."
-  cycleLabel?: string; // "จ. 14 ก.ค. 00:01 น. - จ. 21 ก.ค. 00:00 น."
+  cycleLabel?: string; // "จ. 14 ก.ค. 00:00 น. - อา. 20 ก.ค. 23:59 น."
   startDate: Date;
   endDate: Date;
   rawPaid: number;          // Actual amount paid in this specific week
@@ -63,24 +63,21 @@ export function getEarliestDate(groupCreatedAt: string, transactions: Transactio
 }
 
 /**
- * Calculate the starting Monday 00:01:00 for the weekly cycle that contains the given date.
- * Weekly cycle: Every Monday 00:01:00 until next Monday 00:00:59.
- * If the date is Monday before 00:01:00 (e.g. 00:00:30), it belongs to the PREVIOUS cycle.
+ * Calculate the starting Monday 00:00:00 for the weekly cycle that contains the given date.
+ * Weekly cycle: Every Monday 00:00:00 until Sunday 23:59:59.
+ * Cut-off is precisely every Monday at 00:00 น.
  */
 export function getMondayOfDate(date: Date): Date {
   const d = toBangkokDate(date);
   const day = d.getDay();
   // day: 0 is Sunday, 1 is Monday, ..., 6 is Saturday
-  let diff = d.getDate() - day + (day === 0 ? -6 : 1);
-
-  // If it's Monday but before 00:01:00 (0 hours, 0 mins), it belongs to the previous week!
-  if (day === 1 && d.getHours() === 0 && d.getMinutes() < 1) {
-    diff -= 7;
-  }
+  // If Sunday (0), go back 6 days to Monday
+  // If Monday (1), 00:00:00 starts the new week
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
 
   const monday = new Date(d);
   monday.setDate(diff);
-  monday.setHours(0, 1, 0, 0); // Monday 00:01:00.000
+  monday.setHours(0, 0, 0, 0); // Monday 00:00:00.000
   return monday;
 }
 
@@ -140,18 +137,20 @@ export function generateWeeks(groupCreatedAt: string, transactions: Transaction[
     });
   };
 
-  // Generate weeks up to current week (Cut-off: Monday 00:01:00 to next Monday 00:00:59)
+  // Generate weeks up to current week (Cut-off: Every Monday at 00:00:00)
   while (iterDate <= currentMonday) {
-    const startOfWeek = new Date(iterDate); // Monday 00:01:00.000
-    const endOfWeek = new Date(iterDate);
-    endOfWeek.setDate(iterDate.getDate() + 7);
-    endOfWeek.setHours(0, 0, 59, 999); // Next Monday 00:00:59.999
+    const startOfWeek = new Date(iterDate); // Monday 00:00:00.000
+    const nextMonday = new Date(iterDate);
+    nextMonday.setDate(iterDate.getDate() + 7);
+    nextMonday.setHours(0, 0, 0, 0);
+
+    const endOfWeek = new Date(nextMonday.getTime() - 1); // Sunday 23:59:59.999
 
     const endSunday = new Date(startOfWeek);
     endSunday.setDate(startOfWeek.getDate() + 6);
 
     const label = `${formatDate(startOfWeek)} - ${formatDate(endSunday)}`;
-    const cycleLabel = `จ. ${formatDate(startOfWeek)} 00:01 น. - จ. ${formatDate(endOfWeek)} 00:00 น.`;
+    const cycleLabel = `จ. ${formatDate(startOfWeek)} 00:00 น. - อา. ${formatDate(endSunday)} 23:59 น.`;
 
     weeks.push({
       label,
@@ -167,15 +166,17 @@ export function generateWeeks(groupCreatedAt: string, transactions: Transaction[
   // Fallback: make sure we have at least the current week
   if (weeks.length === 0) {
     const startOfWeek = new Date(currentMonday);
-    const endOfWeek = new Date(currentMonday);
-    endOfWeek.setDate(currentMonday.getDate() + 7);
-    endOfWeek.setHours(0, 0, 59, 999);
+    const nextMonday = new Date(currentMonday);
+    nextMonday.setDate(currentMonday.getDate() + 7);
+    nextMonday.setHours(0, 0, 0, 0);
+
+    const endOfWeek = new Date(nextMonday.getTime() - 1);
 
     const endSunday = new Date(startOfWeek);
     endSunday.setDate(startOfWeek.getDate() + 6);
 
     const label = `${formatDate(startOfWeek)} - ${formatDate(endSunday)}`;
-    const cycleLabel = `จ. ${formatDate(startOfWeek)} 00:01 น. - จ. ${formatDate(endOfWeek)} 00:00 น.`;
+    const cycleLabel = `จ. ${formatDate(startOfWeek)} 00:00 น. - อา. ${formatDate(endSunday)} 23:59 น.`;
 
     weeks.push({
       label,

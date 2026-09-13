@@ -14,7 +14,16 @@ interface MemberManagerProps {
   groupCreatedAt: string;
   onAddMember: (name: string, nickname: string) => void;
   onDeleteMember: (id: string) => void;
-  onEditMember?: (id: string, name: string, nickname: string, newTotalPaid?: number, initialCarryover?: number, customLateFee?: number) => void;
+  onEditMember?: (
+    id: string,
+    name: string,
+    nickname: string,
+    newTotalPaid?: number,
+    initialCarryover?: number,
+    customLateFee?: number,
+    discordUserId?: string,
+    discordUsername?: string
+  ) => void;
   onUpdateMemberCustomLateFee?: (memberId: string, customLateFee: number | undefined) => Promise<void> | void;
   onUpdateLateFee?: (lateFeePerWeek: number, lateFeeNote: string) => void;
   onSetAllDeficit400?: () => Promise<void> | void;
@@ -59,6 +68,8 @@ export default function MemberManager({
   const [editTotalPaid, setEditTotalPaid] = useState<number | string>(0);
   const [editInitialCarryover, setEditInitialCarryover] = useState<number | string>(0);
   const [editCustomLateFee, setEditCustomLateFee] = useState<number | string>("");
+  const [editDiscordUserId, setEditDiscordUserId] = useState("");
+  const [editDiscordUsername, setEditDiscordUsername] = useState("");
 
   const handleStartEdit = (m: any) => {
     setEditingId(m.id);
@@ -67,6 +78,8 @@ export default function MemberManager({
     setEditTotalPaid(m.totalPaid || 0);
     setEditInitialCarryover(m.initialCarryover || 0);
     setEditCustomLateFee(m.customLateFee !== undefined && m.customLateFee !== null ? m.customLateFee : "");
+    setEditDiscordUserId(m.discordUserId || "");
+    setEditDiscordUsername(m.discordUsername || "");
   };
 
   const handleCancelEdit = () => {
@@ -76,6 +89,8 @@ export default function MemberManager({
     setEditTotalPaid(0);
     setEditInitialCarryover(0);
     setEditCustomLateFee("");
+    setEditDiscordUserId("");
+    setEditDiscordUsername("");
   };
 
   const handleSaveEdit = (id: string) => {
@@ -90,7 +105,9 @@ export default function MemberManager({
         editNickname.trim(),
         isNaN(parsedAmount) ? 0 : parsedAmount,
         isNaN(parsedCarryover) ? 0 : parsedCarryover,
-        parsedLateFee !== undefined && !isNaN(parsedLateFee) ? parsedLateFee : undefined
+        parsedLateFee !== undefined && !isNaN(parsedLateFee) ? parsedLateFee : undefined,
+        editDiscordUserId,
+        editDiscordUsername
       );
     }
     handleCancelEdit();
@@ -178,7 +195,7 @@ export default function MemberManager({
           <Users className="w-5 h-5 text-emerald-400" />
           <h2 className="text-lg font-sans font-bold text-slate-100">สมาชิกกลุ่ม ({members.length})</h2>
           <span className="text-[10px] text-slate-400 bg-slate-800/80 px-2.5 py-0.5 rounded-full border border-slate-700/60 flex items-center gap-1 font-sans">
-            <Clock className="w-3 h-3 text-emerald-400" /> รีเซ็ตทุกวันจันทร์ 00:01 น.
+            <Clock className="w-3 h-3 text-emerald-400" /> รีเซ็ตทุกวันจันทร์ 00:00 น.
           </span>
         </div>
         <div className="flex items-center gap-2">
@@ -270,7 +287,7 @@ export default function MemberManager({
           <span>
             หากจ่ายช้าจะถูกปรับ{" "}
             <strong className="text-rose-400 font-mono font-bold">฿{lateFeePerWeek.toLocaleString("th-TH")}</strong>{" "}
-            บาท คิดค่าปรับอัตโนมัติทุกๆวันจันทร์ เวลา 00:01 น.
+            บาท คิดค่าปรับอัตโนมัติทุกๆวันจันทร์ เวลา 00:00 น.
           </span>
         </div>
       )}
@@ -437,6 +454,27 @@ export default function MemberManager({
                       className="w-full px-2.5 py-1.5 bg-slate-900 border border-rose-500/50 rounded-lg text-xs text-rose-300 font-mono focus:outline-none focus:border-rose-500"
                     />
                   </div>
+                  <div className="sm:col-span-2 md:col-span-3 pt-1 border-t border-slate-700/40">
+                    <label className="block text-[9px] text-indigo-300 font-semibold mb-1 flex items-center gap-1">
+                      <span>🔗 ผูกบัญชี Discord ของคนนี้ (ไม่บังคับ - หรือให้เพื่อนพิมพ์ !ผูก ใน Discord)</span>
+                    </label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <input
+                        type="text"
+                        value={editDiscordUserId}
+                        onChange={(e) => setEditDiscordUserId(e.target.value)}
+                        placeholder="Discord User ID (เช่น 123456789012345678)"
+                        className="w-full px-2.5 py-1.5 bg-slate-900 border border-indigo-500/40 rounded-lg text-xs text-indigo-200 font-mono focus:outline-none focus:border-indigo-400"
+                      />
+                      <input
+                        type="text"
+                        value={editDiscordUsername}
+                        onChange={(e) => setEditDiscordUsername(e.target.value)}
+                        placeholder="Discord Username (เช่น somchai_123)"
+                        className="w-full px-2.5 py-1.5 bg-slate-900 border border-indigo-500/40 rounded-lg text-xs text-indigo-200 font-sans focus:outline-none focus:border-indigo-400"
+                      />
+                    </div>
+                  </div>
                 </div>
                 <div className="flex justify-end gap-1.5 pt-1">
                   <button
@@ -482,6 +520,15 @@ export default function MemberManager({
                           คุณ (Me)
                         </span>
                       )}
+                      {m.discordUserId ? (
+                        <span
+                          className="text-[9px] font-sans font-semibold text-indigo-300 bg-indigo-500/15 border border-indigo-500/30 px-1.5 py-0.5 rounded shrink-0 flex items-center gap-1"
+                          title={`ผูก Discord แล้ว: @${m.discordUsername || m.discordUserId} (${m.discordUserId})`}
+                        >
+                          <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" />
+                          <span>@{m.discordUsername || "Discord"}</span>
+                        </span>
+                      ) : null}
                       {m.customLateFee === 0 ? (
                         <button
                           type="button"

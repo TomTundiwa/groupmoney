@@ -2,6 +2,7 @@ import React, { useState, useRef } from "react";
 import { Member, ParsedSlipResult } from "../types";
 import { UploadCloud, FileText, Check, AlertCircle, Loader2, RefreshCw, UserPlus, Copy } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
+import { safeFetchJson } from "../lib/safeApi";
 
 interface SlipUploaderProps {
   members: Member[];
@@ -123,7 +124,7 @@ export default function SlipUploader({
       setSlipImageBase64(compressed || base64);
 
       setLoadingStep("กำลังตรวจสอบสลิปด้วยระบบ SlipOK / Gemini AI...");
-      const response = await fetch("/api/parse-slip", {
+      const { ok, data: resJson, error: fetchErr } = await safeFetchJson<any>("/api/parse-slip", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -132,10 +133,8 @@ export default function SlipUploader({
         }),
       });
 
-      const resJson = await response.json();
-
-      if (!response.ok || !resJson.success) {
-        throw new Error(resJson.error || "ไม่สามารถอ่านข้อมูลสลิปนี้ได้");
+      if (!ok || !resJson?.success) {
+        throw new Error(resJson?.error || fetchErr || "ไม่สามารถอ่านข้อมูลสลิปนี้ได้");
       }
 
       const parsed: ParsedSlipResult = resJson.data;

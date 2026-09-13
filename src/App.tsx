@@ -11,6 +11,7 @@ import { collection, doc, getDoc, setDoc, deleteDoc, updateDoc, onSnapshot, writ
 import { db } from "./lib/firebase";
 import { restoreStarterGroupData } from "./lib/restoreStarterData";
 import { calculateMemberCarryover } from "./lib/carryover";
+import { safeFetchJson, testDiscordWebhookDirect } from "./lib/safeApi";
 
 export default function App() {
   const [groups, setGroups] = useState<Group[]>([]);
@@ -509,7 +510,9 @@ export default function App() {
     nickname: string,
     newTotalPaid?: number,
     initialCarryover?: number,
-    customLateFee?: number
+    customLateFee?: number,
+    discordUserId?: string,
+    discordUsername?: string
   ) => {
     if (!isLeader) {
       alert("เฉพาะหัวหน้าก๊วนเท่านั้นที่สามารถแก้ไขข้อมูลและยอดเงินของสมาชิกได้");
@@ -524,6 +527,20 @@ export default function App() {
         updateData.customLateFee = customLateFee;
       } else if (customLateFee === undefined) {
         updateData.customLateFee = deleteField();
+      }
+      if (discordUserId !== undefined) {
+        if (discordUserId.trim()) {
+          updateData.discordUserId = discordUserId.trim();
+        } else {
+          updateData.discordUserId = deleteField();
+        }
+      }
+      if (discordUsername !== undefined) {
+        if (discordUsername.trim()) {
+          updateData.discordUsername = discordUsername.trim();
+        } else {
+          updateData.discordUsername = deleteField();
+        }
       }
       await updateDoc(doc(db, "members", memberId), updateData);
 
@@ -791,7 +808,7 @@ export default function App() {
     const progressPercent = target > 0 ? Math.round((newTotal / target) * 100) : 0;
 
     try {
-      await fetch("/api/discord/notify-transaction", {
+      const { ok, error } = await safeFetchJson("/api/discord/notify-transaction", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -812,7 +829,34 @@ export default function App() {
           slipImageUrl: currentGroup.discordSendSlipImage !== false ? params.slipImageUrl : undefined,
         }),
       });
-      console.log("[DISCORD] Successfully notified Discord webhook!");
+
+      if (!ok) {
+        console.warn("[DISCORD] Server notification failed, fallback to direct webhook post...", error);
+        // Direct browser fallback to webhook
+        const embed = {
+          title: "💸 มีการบันทึกยอดเงินเข้าใหม่!",
+          description: `ก๊วน **${currentGroup.name}**\n👤 ผู้โอน: **${memberNickname}**${memberName && memberName !== memberNickname ? ` (${memberName})` : ""}\n💰 ยอดเงิน: **${params.amount.toLocaleString("th-TH")} บาท**\n🏦 บัญชี: ${params.bank || "-"}\n📅 วันเวลา: ${params.date} ${params.time}`,
+          color: 0x10B981,
+          fields: [
+            { name: "📊 สะสมของสมาชิก", value: `${newTotal.toLocaleString("th-TH")} บาท`, inline: true },
+            { name: "🎯 เป้าหมาย", value: `${target.toLocaleString("th-TH")} บาท (${progressPercent}%)`, inline: true },
+            { name: "📝 บันทึกโดย", value: params.isAiParsed ? "🤖 AI สแกนสลิป" : "✍️ บันทึกด้วยมือ", inline: true },
+          ],
+          footer: { text: "Group Money Tracker • Direct Notification" },
+          timestamp: new Date().toISOString(),
+        };
+        fetch(currentGroup.discordWebhookUrl.trim(), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            username: "Group Money Bot",
+            avatar_url: "https://cdn-icons-png.flaticon.com/512/9028/9028031.png",
+            embeds: [embed],
+          }),
+        }).catch((directErr) => console.warn("[DISCORD] Direct webhook send also failed:", directErr));
+      } else {
+        console.log("[DISCORD] Successfully notified Discord webhook!");
+      }
     } catch (err) {
       console.warn("[DISCORD] Error sending Discord notification:", err);
     }
@@ -1141,7 +1185,7 @@ export default function App() {
 
       // If bot is enabled and token is present, connect automatically
       if (editDiscordBotEnabled && editDiscordBotToken.trim()) {
-        fetch("/api/discord/bot/connect", {
+        safeFetchJson("/api/discord/bot/connect", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -1151,7 +1195,7 @@ export default function App() {
           }),
         }).catch(() => {});
       } else if (!editDiscordBotEnabled) {
-        fetch("/api/discord/bot/disconnect", {
+        safeFetchJson("/api/discord/bot/disconnect", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ groupId: activeGroupId }),
@@ -1178,19 +1222,39 @@ export default function App() {
     setDiscordTesting(true);
     setDiscordTestResult(null);
     try {
-      const res = await fetch("/api/discord/test", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          webhookUrl: editDiscordWebhookUrl.trim(),
-          groupName: editGroupName.trim() || activeGroup?.name || "ก๊วนออมเงิน",
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
+      const { ok, data, error } = await safeFetchJson<{ success: boolean; message?: string; error?: string }>(
+        "/api/discord/test",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            webhookUrl: editDiscordWebhookUrl.trim(),
+            groupName: editGroupName.trim() || activeGroup?.name || "ก๊วนออมเงิน",
+          }),
+        }
+      );
+
+      if (!ok || !data?.success) {
+        // Fallback to direct client-side test if server returned error or is unreachable
+        try {
+          const direct = await testDiscordWebhookDirect(
+            editDiscordWebhookUrl.trim(),
+            editGroupName.trim() || activeGroup?.name || "ก๊วนออมเงิน"
+          );
+          if (direct.success) {
+            setDiscordTestResult({
+              success: true,
+              message: "ส่งข้อความทดสอบสำเร็จตรงไปยัง Discord Webhook เรียบร้อยแล้ว! 🎉",
+            });
+            return;
+          }
+        } catch (directErr: any) {
+          console.warn("Direct webhook send error:", directErr);
+        }
+
         setDiscordTestResult({
           success: false,
-          message: data.error || "ส่งข้อความไม่สำเร็จ โปรดตรวจสอบ Webhook URL",
+          message: data?.error || error || "ส่งข้อความไม่สำเร็จ โปรดตรวจสอบ Webhook URL",
         });
       } else {
         setDiscordTestResult({
@@ -1216,7 +1280,12 @@ export default function App() {
     setDiscordBotConnecting(true);
     setDiscordTestResult(null);
     try {
-      const res = await fetch("/api/discord/bot/connect", {
+      const { ok, data, error } = await safeFetchJson<{
+        success: boolean;
+        botUsername?: string;
+        message?: string;
+        error?: string;
+      }>("/api/discord/bot/connect", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1225,15 +1294,27 @@ export default function App() {
           channelId: editDiscordChannelId.trim() || undefined,
         }),
       });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        setDiscordTestResult({ success: false, message: data.error || "เชื่อมต่อ Discord Bot ไม่สำเร็จ" });
+
+      if (!ok || !data?.success) {
+        setDiscordTestResult({
+          success: false,
+          message:
+            data?.error ||
+            error ||
+            "เชื่อมต่อ Discord Bot ไม่สำเร็จ โปรดตรวจสอบ Bot Token และสิทธิ์ Privileged Gateway Intents (Message Content Intent)",
+        });
       } else {
         setDiscordBotStatus({ isConnected: true, botUsername: data.botUsername });
-        setDiscordTestResult({ success: true, message: data.message });
+        setDiscordTestResult({
+          success: true,
+          message: data.message || `เชื่อมต่อ Discord Bot สำเร็จในชื่อ @${data.botUsername}! พร้อมตอบคำสั่งในห้อง Discord แล้ว`,
+        });
       }
     } catch (err: any) {
-      setDiscordTestResult({ success: false, message: err.message || "เกิดข้อผิดพลาดในการเชื่อมต่อบอท" });
+      setDiscordTestResult({
+        success: false,
+        message: err.message || "เกิดข้อผิดพลาดในการเชื่อมต่อบอท",
+      });
     } finally {
       setDiscordBotConnecting(false);
     }
@@ -1241,7 +1322,7 @@ export default function App() {
 
   const handleDisconnectDiscordBot = async () => {
     try {
-      await fetch("/api/discord/bot/disconnect", {
+      await safeFetchJson("/api/discord/bot/disconnect", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ groupId: activeGroupId }),
@@ -1257,7 +1338,7 @@ export default function App() {
     setCommandPreviewLoading(true);
     setCommandSendSuccess(null);
     try {
-      const res = await fetch("/api/discord/command", {
+      const { ok, data, error } = await safeFetchJson<any>("/api/discord/command", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1266,8 +1347,7 @@ export default function App() {
           sendToWebhook,
         }),
       });
-      const data = await res.json();
-      if (data.success && data.embed) {
+      if (ok && data?.success && data.embed) {
         setCommandPreviewData(data.embed);
         if (sendToWebhook) {
           if (data.webhookResult?.sent) {
@@ -1276,9 +1356,12 @@ export default function App() {
             setCommandSendSuccess(`ไม่สามารถส่งเข้า Webhook ได้: ${data.webhookResult?.error || "โปรดตรวจสอบ Webhook URL"}`);
           }
         }
+      } else {
+        setCommandSendSuccess(`เกิดข้อผิดพลาดในการรันคำสั่ง: ${data?.error || error || "ไม่สามารถประมวลผลคำสั่งได้"}`);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error previewing command:", err);
+      setCommandSendSuccess(`เกิดข้อผิดพลาด: ${err.message || "ไม่สามารถประมวลผลคำสั่งได้"}`);
     } finally {
       setCommandPreviewLoading(false);
     }
@@ -1343,10 +1426,9 @@ export default function App() {
     setCommandSendSuccess(null);
 
     // Check bot connection status
-    fetch(`/api/discord/bot/status/${group.id}`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.success) {
+    safeFetchJson<any>(`/api/discord/bot/status/${group.id}`)
+      .then(({ ok, data }) => {
+        if (ok && data?.success) {
           setDiscordBotStatus({ isConnected: data.isConnected, botUsername: data.botUsername });
         }
       })
@@ -1921,7 +2003,7 @@ export default function App() {
                         </div>
                       </div>
                       <p className="text-[11px] text-rose-300/90 leading-relaxed font-medium bg-rose-500/10 border border-rose-500/20 px-3 py-2 rounded-xl">
-                        💡 กฎค่าปรับ: หากจ่ายช้าจะถูกปรับ {editLateFeePerWeek || 0} บาท คิดค่าปรับอัตโนมัติทุกๆวันจันทร์ เวลา 00:01 น.
+                        💡 กฎค่าปรับ: หากจ่ายช้าจะถูกปรับ {editLateFeePerWeek || 0} บาท คิดค่าปรับอัตโนมัติทุกๆวันจันทร์ เวลา 00:00 น.
                       </p>
                     </div>
 
@@ -2356,6 +2438,12 @@ export default function App() {
                                           ⚡ ปรับ ฿{m.customLateFee}/สัปดาห์
                                         </span>
                                       ) : null}
+                                      {m.discordUserId && (
+                                        <span className="text-[9px] font-sans font-semibold text-indigo-300 bg-indigo-500/15 border border-indigo-500/30 px-1.5 py-0.5 rounded shrink-0 flex items-center gap-1" title={`ผูก Discord ID: ${m.discordUserId}`}>
+                                          <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" />
+                                          <span>@{m.discordUsername || "Discord"}</span>
+                                        </span>
+                                      )}
                                     </div>
                                     <p className="text-[10px] text-slate-400 truncate">
                                       {m.name} {memberTxsCount > 0 ? `• สลิป ${memberTxsCount} รายการ` : "• ยังไม่มีสลิป"}
@@ -2503,7 +2591,7 @@ export default function App() {
                     <div className="bg-slate-950/40 border border-slate-800/60 rounded-xl p-3.5 text-xs text-slate-400 space-y-1">
                       <p className="font-bold text-slate-300">💡 ข้อมูลการตั้งค่าปัจจุบันของกลุ่ม</p>
                       <p>• ยอดส่งเป้าหมาย: <span className="text-emerald-400 font-mono font-bold">฿{activeGroup?.targetAmountPerMember.toLocaleString("th-TH")}</span> / คน / สัปดาห์</p>
-                      <p>• กฎค่าปรับ: หากจ่ายช้าจะถูกปรับ <span className="text-rose-400 font-mono font-bold">฿{activeGroup?.lateFeePerWeek || 0}</span> บาท คิดค่าปรับอัตโนมัติทุกๆวันจันทร์ เวลา 00:01 น.</p>
+                      <p>• กฎค่าปรับ: หากจ่ายช้าจะถูกปรับ <span className="text-rose-400 font-mono font-bold">฿{activeGroup?.lateFeePerWeek || 0}</span> บาท คิดค่าปรับอัตโนมัติทุกๆวันจันทร์ เวลา 00:00 น.</p>
                       {activeGroup?.coLeaders && activeGroup.coLeaders.length > 0 && (
                         <p>• หัวหน้าก๊วนร่วม: <span className="text-amber-400 font-bold">{activeGroup.coLeaders.join(", ")}</span></p>
                       )}

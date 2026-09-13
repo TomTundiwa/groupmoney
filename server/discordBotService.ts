@@ -1,6 +1,6 @@
 import { Client, GatewayIntentBits } from "discord.js";
 import { db } from "../src/lib/firebase";
-import { collection, getDocs, query, where, doc, getDoc } from "firebase/firestore";
+import { collection, getDocs, query, where, doc, getDoc, updateDoc, deleteField } from "firebase/firestore";
 import { calculateMemberCarryover, getMondayOfDate, parseTxDateTime, toBangkokDate } from "../src/lib/carryover";
 import { Group, Member, Transaction } from "../src/types";
 
@@ -135,6 +135,7 @@ export function buildCheckEmbed(
 
   const totalUnpaidAmount = unpaidList.reduce((sum, s) => sum + s.deficit, 0);
   const targetWeekLabel = memberStatuses[0]?.targetWeekData?.label || (isPrevious ? "อาทิตย์ก่อน" : "รอบปัจจุบัน");
+  const targetCycleLabel = memberStatuses[0]?.targetWeekData?.cycleLabel;
 
   // Format Unpaid Field value
   let unpaidValue = "";
@@ -145,10 +146,13 @@ export function buildCheckEmbed(
   } else {
     unpaidValue = unpaidList
       .map((s, idx) => {
+        const discordPart = s.member.discordUserId
+          ? ` <@${s.member.discordUserId}>`
+          : (s.member.discordUsername ? ` (@${s.member.discordUsername})` : "");
         const namePart = s.member.name && s.member.name !== s.member.nickname ? ` (${s.member.name})` : "";
         const finePart = s.totalLateFee > 0 ? ` • ค่าปรับ ฿${formatBaht(s.totalLateFee)}` : "";
         const paidPart = s.rawPaid > 0 ? ` (โอนแล้ว ฿${formatBaht(s.rawPaid)})` : " (ยังไม่โอน)";
-        return `${idx + 1}. 🔴 **${s.member.nickname}**${namePart}: **ค้างชำระ ฿${formatBaht(s.deficit)}**${paidPart}${finePart}`;
+        return `${idx + 1}. 🔴 **${s.member.nickname}**${discordPart}${namePart}: **ค้างชำระ ฿${formatBaht(s.deficit)}**${paidPart}${finePart}`;
       })
       .join("\n");
   }
@@ -160,8 +164,11 @@ export function buildCheckEmbed(
   } else {
     paidValue = paidList
       .map((s, idx) => {
+        const discordPart = s.member.discordUserId
+          ? ` <@${s.member.discordUserId}>`
+          : (s.member.discordUsername ? ` (@${s.member.discordUsername})` : "");
         const bonusPart = s.carriedOut > 0 ? ` *(ทบเกิน +฿${formatBaht(s.carriedOut)})*` : "";
-        return `${idx + 1}. 🟢 **${s.member.nickname}**: โอนแล้ว ฿${formatBaht(s.rawPaid)}${bonusPart}`;
+        return `${idx + 1}. 🟢 **${s.member.nickname}**${discordPart}: โอนแล้ว ฿${formatBaht(s.rawPaid)}${bonusPart}`;
       })
       .join("\n");
   }
@@ -185,10 +192,10 @@ export function buildCheckEmbed(
   const summaryFieldName = isPrevious ? "📊 สรุปยอดค้างชำระของอาทิตย์ก่อน" : "📊 สรุปยอดค้างชำระรอบปัจจุบัน";
 
   const footerText = isPrevious
-    ? "Group Money Bot • ตัดรอบทุกวันจันทร์ 00:01 น. • พิมพ์ !เช็ค เพื่อดูยอดปัจจุบัน หรือ !ยอดเงิน"
-    : "Group Money Bot • ตัดรอบทุกวันจันทร์ 00:01 น. • พิมพ์ !เช็คก่อน เพื่อดูยอดอาทิตย์ก่อน หรือ !ยอดเงิน";
+    ? "Group Money Bot • ตัดรอบทุกวันจันทร์ 00:00 น. • พิมพ์ !เช็ค เพื่อดูยอดปัจจุบัน หรือ !ยอดเงิน"
+    : "Group Money Bot • ตัดรอบทุกวันจันทร์ 00:00 น. • พิมพ์ !เช็คก่อน เพื่อดูยอดอาทิตย์ก่อน หรือ !ยอดเงิน";
 
-  const cycleDetails = targetWeekData?.cycleLabel ? `\n⏰ ช่วงเวลารอบนี้: **${targetWeekData.cycleLabel}**` : "\n⏰ ตัดรอบ: **ทุกวันจันทร์ เวลา 00:01 น.**";
+  const cycleDetails = targetCycleLabel ? `\n⏰ ช่วงเวลารอบนี้: **${targetCycleLabel}**` : "\n⏰ ตัดรอบ: **ทุกวันจันทร์ เวลา 00:00 น.**";
 
   return {
     title,
@@ -228,13 +235,13 @@ export function buildBalanceEmbed(
   transactions: Transaction[]
 ): DiscordEmbed {
   const targetPerMember = group.targetAmountPerMember || 0;
-  const groupTotalTarget = targetPerMember * members.length;
+  const groupTotalTarget = targetPerMember * (members.length || 1);
 
   // Total collected all time
   const totalAllTime = transactions.reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
   const progressPercent = groupTotalTarget > 0 ? Math.round((totalAllTime / groupTotalTarget) * 100) : 0;
 
-  // Current week transactions (cut off every Monday at 00:01:00)
+  // Current week transactions (cut off every Monday at 00:00:00)
   const currentWeekStart = getMondayOfDate(new Date());
 
   const thisWeekTxs = transactions.filter((t) => {
@@ -254,14 +261,15 @@ export function buildBalanceEmbed(
   const recentList = sortedTxs.slice(0, 3).map((tx, idx) => {
     const m = memberMap.get(tx.memberId);
     const nick = m?.nickname || tx.senderNameText || "สมาชิก";
-    return `${idx + 1}. **${nick}** +฿${formatBaht(tx.amount)} (${tx.date} ${tx.time || ""})`;
+    const discordMention = m?.discordUserId ? ` (<@${m.discordUserId}>)` : "";
+    return `${idx + 1}. **${nick}**${discordMention} +฿${formatBaht(tx.amount)} (${tx.date} ${tx.time || ""})`;
   });
 
   const recentText = recentList.length > 0 ? recentList.join("\n") : "ยังไม่มีรายการโอนล่าสุด";
 
   return {
     title: `💰 สรุปยอดเงินกองกลาง: ${group.name}`,
-    description: `สรุปสถานะยอดเงินออมและยอดสะสมของก๊วน ณ ปัจจุบัน (ตัดรอบทุกวันจันทร์ 00:01 น.)`,
+    description: `สรุปสถานะยอดเงินออมและยอดสะสมของก๊วน ณ ปัจจุบัน (ตัดรอบทุกวันจันทร์ 00:00 น.)`,
     color: 0x3B82F6, // Brand Blue
     fields: [
       {
@@ -275,13 +283,13 @@ export function buildBalanceEmbed(
         inline: true,
       },
       {
-        name: "📅 ยอดโอนเข้าสัปดาห์นี้ (นับตั้งแต่ จ. 00:01 น.)",
+        name: "📅 ยอดโอนเข้าสัปดาห์นี้ (นับตั้งแต่ จ. 00:00 น.)",
         value: `**฿${formatBaht(totalThisWeek)}** (${thisWeekTxs.length} รายการ)`,
         inline: true,
       },
       {
-        name: "👥 จำนวนสมาชิกทั้งหมด",
-        value: `${members.length} คน (เป้าคนละ ฿${formatBaht(targetPerMember)})`,
+        name: "👥 สมาชิกในก๊วน",
+        value: `${members.length} คน (ผูก Discord แล้ว ${members.filter((m) => m.discordUserId).length} คน)`,
         inline: true,
       },
       {
@@ -291,7 +299,128 @@ export function buildBalanceEmbed(
       },
     ],
     footer: {
-      text: "Group Money Bot • ตัดรอบทุกวันจันทร์ 00:01 น. • พิมพ์ !เช็ค หรือ !คำสั่ง",
+      text: "Group Money Bot • ตัดรอบทุกวันจันทร์ 00:00 น. • พิมพ์ !เช็ค หรือ !ของฉัน",
+    },
+    timestamp: new Date().toISOString(),
+  };
+}
+
+/**
+ * Generate embed for "!ของฉัน" or "!me" (Personal member status)
+ */
+export function buildMemberPersonalStatusEmbed(
+  group: Group,
+  member: Member,
+  transactions: Transaction[]
+): DiscordEmbed {
+  const targetPerMember = group.targetAmountPerMember || 0;
+  const lateFeePerWeek = group.lateFeePerWeek || 0;
+
+  const calc = calculateMemberCarryover(
+    member.id,
+    transactions,
+    targetPerMember,
+    group.createdAt,
+    lateFeePerWeek,
+    member.initialCarryover || 0,
+    member.customLateFee
+  );
+
+  const manualFine = Number(member.manualFine || 0);
+  const curStatus = calc.currentWeekStatus;
+  const deficit = (curStatus.deficit || 0) + manualFine;
+  const rawPaid = curStatus.rawPaidThisWeek || 0;
+  const isPaidFully = curStatus.isPaidFully && manualFine === 0 && deficit <= 0;
+  const totalFine = (curStatus.lateFeeThisWeek || 0) + manualFine;
+  const carriedOut = curStatus.carriedOut || 0;
+
+  // Member's all-time transactions
+  const memberTxs = transactions.filter((t) => t.memberId === member.id);
+  const totalAllTimePaid = memberTxs.reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+
+  const statusColor = isPaidFully ? 0x10B981 : 0xEF4444;
+  const statusBadge = isPaidFully ? "🟢 โอนครบถ้วนแล้ว" : "🔴 ยังค้างชำระ";
+
+  return {
+    title: `👤 ข้อมูลสถานะการเงินส่วนตัว: ${member.nickname}`,
+    description: `ก๊วน: **${group.name}**\nDiscord: <@${member.discordUserId}> (${member.name && member.name !== member.nickname ? `ชื่อบัญชี: ${member.name}` : `@${member.discordUsername || "discord"}`})\n⏰ ตัดรอบสัปดาห์: **ทุกวันจันทร์ เวลา 00:00 น.**`,
+    color: statusColor,
+    fields: [
+      {
+        name: "📌 สถานะรอบปัจจุบัน",
+        value: `**${statusBadge}**${isPaidFully ? " 🎉" : ` (ค้าง **฿${formatBaht(deficit)}**)`}`,
+        inline: true,
+      },
+      {
+        name: "🎯 เป้าหมายประจำสัปดาห์",
+        value: `**฿${formatBaht(targetPerMember)}**`,
+        inline: true,
+      },
+      {
+        name: "💸 โอนแล้วสัปดาห์นี้",
+        value: `**฿${formatBaht(rawPaid)}**${carriedOut > 0 ? ` *(ทบเกิน +฿${formatBaht(carriedOut)})*` : ""}`,
+        inline: true,
+      },
+      {
+        name: "⚠️ ยอดค้างชำระสุทธิ",
+        value: deficit > 0 ? `**฿${formatBaht(deficit)}**` : "฿0 (ไม่มีหนี้ค้าง)",
+        inline: true,
+      },
+      ...(totalFine > 0
+        ? [
+            {
+              name: "🚨 ค่าปรับรวม",
+              value: `**฿${formatBaht(totalFine)}**`,
+              inline: true,
+            },
+          ]
+        : []),
+      {
+        name: "🏆 ยอดโอนสะสมทั้งหมด",
+        value: `**฿${formatBaht(totalAllTimePaid)}** (${memberTxs.length} รายการ)`,
+        inline: true,
+      },
+    ],
+    footer: {
+      text: "Group Money Bot • ตัดรอบทุกวันจันทร์ 00:00 น. • พิมพ์ !เช็ค หรือ !ยอดเงิน",
+    },
+    timestamp: new Date().toISOString(),
+  };
+}
+
+/**
+ * Generate embed for "!ใครผูกแล้ว" or "!สมาชิก" (List all members and their Discord link status)
+ */
+export function buildMembersListEmbed(group: Group, members: Member[]): DiscordEmbed {
+  const linkedCount = members.filter((m) => Boolean(m.discordUserId)).length;
+
+  const memberLines = members.map((m, idx) => {
+    if (m.discordUserId) {
+      return `${idx + 1}. 🟢 **${m.nickname}** ➔ ผูกกับ <@${m.discordUserId}> (@${m.discordUsername || "discord"})`;
+    }
+    return `${idx + 1}. ⚪ **${m.nickname}** ➔ *ยังไม่ผูก* (พิมพ์ \`!ผูก ${m.nickname}\`)`;
+  });
+
+  const memberListText = memberLines.join("\n");
+
+  return {
+    title: `👥 รายชื่อสมาชิกในก๊วน: ${group.name}`,
+    description: `สถานะการเชื่อมต่อ Discord: **ผูกแล้ว ${linkedCount}/${members.length} คน**\nสมาชิกทุกคนสามารถเชื่อมต่อบัญชี Discord ของตัวเองได้ทันที`,
+    color: 0x5865F2,
+    fields: [
+      {
+        name: "📋 รายชื่อสมาชิกและบัญชี Discord",
+        value: memberListText.length > 1024 ? memberListText.slice(0, 1020) + "..." : memberListText,
+        inline: false,
+      },
+      {
+        name: "🔗 วิธีผูกบัญชี Discord ของคุณ",
+        value: "พิมพ์ `!ผูก [ชื่อเล่น]` (เช่น `!ผูก " + (members[0]?.nickname || "ชื่อเล่น") + "`)\n• หลังจากผูกแล้ว บอทจะแท็กชื่อคุณเมื่อมีคำสั่ง `!เช็ค`\n• สามารถพิมพ์ `!ของฉัน` เพื่อดูสถานะส่วนตัวของคุณได้ตลอดเวลา",
+        inline: false,
+      },
+    ],
+    footer: {
+      text: "Group Money Bot • ตัดรอบทุกวันจันทร์ 00:00 น. • พิมพ์ !ผูก [ชื่อเล่น]",
     },
     timestamp: new Date().toISOString(),
   };
@@ -308,32 +437,47 @@ export function buildHelpEmbed(group?: Group): DiscordEmbed {
     fields: [
       {
         name: "📌 `!เช็ค` (หรือ `!check`, `!ค้าง`)",
-        value: "ตรวจสอบรายชื่อสมาชิกที่**ยังไม่โอนเงิน / ค้างชำระในรอบปัจจุบัน** (ตัดรอบทุกวันจันทร์ 00:01 น.) พร้อมยอดค้างของแต่ละคน",
+        value: "ตรวจสอบรายชื่อสมาชิกที่**ยังไม่โอนเงิน / ค้างชำระในรอบปัจจุบัน** (ตัดรอบทุกวันจันทร์ 00:00 น.) พร้อมแท็กชื่อ Discord คนค้าง",
         inline: false,
       },
       {
         name: "📌 `!เช็คก่อน` (หรือ `!checkprev`, `!เช็คอาทิตย์ก่อน`)",
-        value: "ตรวจสอบรายชื่อสมาชิกที่**ค้างชำระของรอบอาทิตย์ก่อนหน้า** (ก่อนวันจันทร์ 00:01 น. ล่าสุด) พร้อมยอดค้างและค่าปรับ",
+        value: "ตรวจสอบรายชื่อสมาชิกที่**ค้างชำระของรอบอาทิตย์ก่อนหน้า** (ก่อนวันจันทร์ 00:00 น. ล่าสุด) พร้อมยอดค้างและค่าปรับ",
         inline: false,
       },
       {
         name: "📌 `!ยอดเงิน` (หรือ `!balance`, `!เงิน`)",
-        value: "ดู**ยอดเงินกองกลางรวมทั้งหมด** ยอดประจำสัปดาห์ (ตั้งแต่ จ. 00:01 น.) ความคืบหน้าของเป้าหมาย และรายการโอนล่าสุด",
+        value: "ดู**ยอดเงินกองกลางรวมทั้งหมด** ยอดประจำสัปดาห์ (ตั้งแต่ จ. 00:00 น.) ความคืบหน้าของเป้าหมาย และรายการโอนล่าสุด",
+        inline: false,
+      },
+      {
+        name: "🔗 `!ผูก [ชื่อเล่น]` (หรือ `!link [ชื่อเล่น]`)",
+        value: "เชื่อมโยงบัญชี Discord ของคุณเข้ากับชื่อสมาชิกในก๊วน (เช่น `!ผูก บอย`) เพื่อให้บอทแท็กแจ้งเตือนและเช็คยอดส่วนตัวได้",
+        inline: false,
+      },
+      {
+        name: "👤 `!ของฉัน` (หรือ `!me`, `!สถานะ`)",
+        value: "ตรวจสอบ**ยอดเงินและสถานะส่วนตัวของคุณ** (ต้องผูกบัญชีก่อน) เช่น ยอดที่ต้องโอนในสัปดาห์นี้ หรือยอดโอนสะสม",
+        inline: false,
+      },
+      {
+        name: "👥 `!ใครผูกแล้ว` (หรือ `!สมาชิก`, `!members`)",
+        value: "ดูรายชื่อสมาชิกทุกคนในก๊วน และตรวจสอบว่าใครเชื่อมต่อบัญชี Discord แล้วบ้าง",
+        inline: false,
+      },
+      {
+        name: "🔓 `!ยกเลิกผูก` (หรือ `!unlink`)",
+        value: "ยกเลิกการเชื่อมโยงบัญชี Discord ของคุณออกจากสมาชิกในก๊วน",
         inline: false,
       },
       {
         name: "⏰ `กฎการตัดรอบรายสัปดาห์`",
-        value: "ระบบจะ**ตัดรอบอัตโนมัติทุกๆ วันจันทร์ เวลา 00:01 น.**\n• โอนก่อนวันจันทร์ 00:01 น. = นับเป็นรอบสัปดาห์เดิม\n• โอนตั้งแต่วันจันทร์ 00:01 น. เป็นต้นไป = นับเป็นรอบสัปดาห์ใหม่ทันที",
-        inline: false,
-      },
-      {
-        name: "📌 `!คำสั่ง` (หรือ `!help`)",
-        value: "แสดงรายการคำสั่งทั้งหมดและเงื่อนไขการตัดรอบที่บอทรองรับ",
+        value: "ระบบจะ**ตัดรอบอัตโนมัติทุกๆ วันจันทร์ เวลา 00:00 น.**\n• โอนก่อนวันจันทร์ 00:00 น. = นับเป็นรอบสัปดาห์เดิม\n• โอนตั้งแต่วันจันทร์ 00:00 น. เป็นต้นไป = นับเป็นรอบสัปดาห์ใหม่ทันที",
         inline: false,
       },
     ],
     footer: {
-      text: "Group Money Bot • ตัดรอบทุกวันจันทร์ 00:01 น. • ตอบกลับอัตโนมัติ 24 ชม.",
+      text: "Group Money Bot • ตัดรอบทุกวันจันทร์ 00:00 น. • ตอบกลับอัตโนมัติ 24 ชม.",
     },
     timestamp: new Date().toISOString(),
   };
@@ -459,7 +603,133 @@ class DiscordBotManager {
             return;
           }
 
-          const content = message.content.trim().toLowerCase();
+          const rawContent = message.content.trim();
+          const content = rawContent.toLowerCase();
+
+          // Command: !ผูก or !link or !connect (Link Discord account to group member)
+          if (content.startsWith("!ผูก") || content.startsWith("!link") || content.startsWith("!connect")) {
+            const data = await fetchGroupData(groupId);
+            if (!data) {
+              await message.reply("⚠️ ไม่พบข้อมูลก๊วนออมเงินนี้");
+              return;
+            }
+
+            // Extract argument (member name or nickname)
+            const parts = rawContent.split(/\s+/);
+            const targetName = parts.slice(1).join(" ").trim().toLowerCase();
+
+            if (!targetName) {
+              const availableMembers = data.members
+                .map((m) => `• **${m.nickname}**${m.discordUserId ? ` (ผูกกับ <@${m.discordUserId}> แล้ว)` : " *(ยังว่าง)*"}`)
+                .join("\n");
+              await message.reply(
+                `ℹ️ **กรุณาระบุชื่อเล่นที่ต้องการผูก**\nรูปแบบ: \`!ผูก [ชื่อเล่นของคุณ]\` เช่น \`!ผูก ${data.members[0]?.nickname || "ชื่อเล่น"}\`\n\n**รายชื่อสมาชิกในก๊วน:**\n${availableMembers}`
+              );
+              return;
+            }
+
+            // Find member by nickname or name
+            const matchedMember = data.members.find(
+              (m) =>
+                (m.nickname && m.nickname.trim().toLowerCase() === targetName) ||
+                (m.name && m.name.trim().toLowerCase() === targetName)
+            ) || data.members.find(
+              (m) =>
+                (m.nickname && m.nickname.trim().toLowerCase().includes(targetName)) ||
+                (m.name && m.name.trim().toLowerCase().includes(targetName))
+            );
+
+            if (!matchedMember) {
+              const memberNames = data.members.map((m) => `\`${m.nickname}\``).join(", ");
+              await message.reply(
+                `❌ ไม่พบสมาชิกชื่อ **"${parts.slice(1).join(" ")}"** ในก๊วน\nสมาชิกที่มีอยู่: ${memberNames}\n(ลองพิมพ์ \`!ผูก [ชื่อเล่น]\`)`
+              );
+              return;
+            }
+
+            // Update in Firestore
+            try {
+              await updateDoc(doc(db, "members", matchedMember.id), {
+                discordUserId: message.author.id,
+                discordUsername: message.author.username,
+              });
+
+              await message.reply(
+                `🎉 **เชื่อมโยงสำเร็จ!**\nบัญชี Discord <@${message.author.id}> (@${message.author.username}) ถูกผูกกับสมาชิก **"${matchedMember.nickname}"** เรียบร้อยแล้ว\n• บอทจะแท็กชื่อคุณเมื่อมีคำสั่ง \`!เช็ค\`\n• พิมพ์ \`!ของฉัน\` เพื่อดูยอดเงินและสถานะส่วนตัวของคุณได้ทันที!`
+              );
+            } catch (err: any) {
+              console.error("[DISCORD BOT] Error linking member:", err);
+              await message.reply(`⚠️ เกิดข้อผิดพลาดในการบันทึกข้อมูล: ${err.message || "Unknown error"}`);
+            }
+            return;
+          }
+
+          // Command: !ยกเลิกผูก or !unlink or !ปลดผูก
+          if (content.startsWith("!ยกเลิกผูก") || content.startsWith("!unlink") || content.startsWith("!ปลดผูก")) {
+            const data = await fetchGroupData(groupId);
+            if (!data) {
+              await message.reply("⚠️ ไม่พบข้อมูลก๊วนออมเงินนี้");
+              return;
+            }
+
+            const linkedMember = data.members.find((m) => m.discordUserId === message.author.id);
+            if (!linkedMember) {
+              await message.reply("⚠️ บัญชี Discord ของคุณยังไม่ได้ผูกกับสมาชิกคนใดในก๊วน (พิมพ์ `!ผูก [ชื่อเล่น]` เพื่อผูกบัญชี)");
+              return;
+            }
+
+            try {
+              await updateDoc(doc(db, "members", linkedMember.id), {
+                discordUserId: deleteField(),
+                discordUsername: deleteField(),
+              });
+              await message.reply(`🔓 **ยกเลิกการเชื่อมโยงแล้ว!**\nปลดการผูกบัญชี Discord <@${message.author.id}> ออกจาก **"${linkedMember.nickname}"** เรียบร้อยแล้ว`);
+            } catch (err: any) {
+              console.error("[DISCORD BOT] Error unlinking member:", err);
+              await message.reply(`⚠️ เกิดข้อผิดพลาดในการยกเลิก: ${err.message || "Unknown error"}`);
+            }
+            return;
+          }
+
+          // Command: !ของฉัน or !me or !สถานะ or !my (Personal status)
+          if (content.startsWith("!ของฉัน") || content === "!me" || content.startsWith("!สถานะ") || content === "!my") {
+            const data = await fetchGroupData(groupId);
+            if (!data) {
+              await message.reply("⚠️ ไม่พบข้อมูลก๊วนออมเงินนี้");
+              return;
+            }
+
+            const linkedMember = data.members.find((m) => m.discordUserId === message.author.id);
+            if (!linkedMember) {
+              const exampleNick = data.members[0]?.nickname || "ชื่อเล่น";
+              await message.reply(
+                `⚠️ **บัญชี Discord ของคุณยังไม่ได้ผูกกับสมาชิกในก๊วน**\nกรุณาพิมพ์ \`!ผูก [ชื่อเล่นของคุณ]\` เพื่อผูกบัญชีก่อน\nตัวอย่าง: \`!ผูก ${exampleNick}\` หรือพิมพ์ \`!สมาชิก\` เพื่อดูรายชื่อทั้งหมด`
+              );
+              return;
+            }
+
+            const embed = buildMemberPersonalStatusEmbed(data.group, linkedMember, data.transactions);
+            await message.reply({ embeds: [embed] });
+            return;
+          }
+
+          // Command: !ใครผูกแล้ว or !สมาชิก or !รายชื่อ or !members or !list
+          if (
+            content.startsWith("!ใครผูกแล้ว") ||
+            content.startsWith("!สมาชิก") ||
+            content.startsWith("!รายชื่อ") ||
+            content.startsWith("!members") ||
+            content.startsWith("!list")
+          ) {
+            const data = await fetchGroupData(groupId);
+            if (!data) {
+              await message.reply("⚠️ ไม่พบข้อมูลก๊วนออมเงินนี้");
+              return;
+            }
+            const embed = buildMembersListEmbed(data.group, data.members);
+            await message.reply({ embeds: [embed] });
+            return;
+          }
 
           // Command: !เช็คก่อน or !checkprev or !เช็คอาทิตย์ก่อน (Previous week check)
           if (
