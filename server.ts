@@ -24,6 +24,11 @@ app.use((req, res, next) => {
 app.use(express.json({ limit: "15mb" }));
 app.use(express.urlencoded({ limit: "15mb", extended: true }));
 
+// Health check endpoint
+app.get("/api/health", (req, res) => {
+  res.json({ status: "ok", uptime: process.uptime() });
+});
+
 // Shared Gemini API client initialization
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
@@ -469,7 +474,7 @@ const isValidDiscordWebhookUrl = (url: string): boolean => {
 // Discord Webhook: Test connection endpoint
 app.post("/api/discord/test", async (req, res) => {
   try {
-    const { webhookUrl, groupName } = req.body;
+    const { webhookUrl, groupName, webhookType = "transaction" } = req.body;
     if (!webhookUrl || typeof webhookUrl !== "string") {
       return res.status(400).json({ success: false, error: "กรุณาระบุ Discord Webhook URL" });
     }
@@ -480,27 +485,51 @@ app.post("/api/discord/test", async (req, res) => {
       });
     }
 
-    const embed = {
-      title: "🔔 ทดสอบการเชื่อมต่อ Discord Webhook สำเร็จ!",
-      description: `ระบบแจ้งเตือนของก๊วน **${groupName || "ก๊วนออมเงิน"}** ได้เชื่อมต่อกับ Discord Webhook นี้เรียบร้อยแล้ว 🎉\nต่อไปเมื่อมีสมาชิกบันทึกสลิปหรือโอนเงินเข้ากลุ่ม ระบบจะแจ้งเตือนมายังห้องนี้อัตโนมัติ`,
-      color: 0x5865F2, // Discord Blurple
-      fields: [
-        { name: "🏢 กลุ่ม", value: groupName || "ก๊วนออมเงิน", inline: true },
-        { name: "🕒 เวลาทดสอบ", value: new Date().toLocaleTimeString("th-TH"), inline: true },
-        { name: "🛡️ สถานะ", value: "พร้อมรับแจ้งเตือน (Active)", inline: true },
-      ],
-      footer: {
-        text: "Group Money Tracker • Discord Notification",
-      },
-      timestamp: new Date().toISOString(),
-    };
+    const isOverdue = webhookType === "overdue";
+
+    const embed = isOverdue
+      ? {
+          title: "🚨 ทดสอบการเชื่อมต่อ Webhook แจ้งเตือนยอดค้าง สำเร็จ!",
+          description: `ระบบแจ้งเตือนรายชื่อยอดค้างของก๊วน **${groupName || "ก๊วนออมเงิน"}** ได้เชื่อมต่อเรียบร้อยแล้ว 🎉\nพร้อมสำหรับการแจ้งเตือนรายชื่อคนค้างจ่าย สรุปยอดหนี้ และสะกิดสมาชิกที่ไม่โอนเงิน`,
+          color: 0xEF4444, // Red
+          fields: [
+            { name: "🏢 กลุ่ม", value: groupName || "ก๊วนออมเงิน", inline: true },
+            { name: "📌 ช่องทาง", value: "แจ้งเตือนรายชื่อยอดค้าง (Overdue)", inline: true },
+            { name: "🕒 เวลาทดสอบ", value: new Date().toLocaleTimeString("th-TH"), inline: true },
+          ],
+          footer: {
+            text: "Group Money Tracker • Overdue Reminder Webhook",
+          },
+          timestamp: new Date().toISOString(),
+        }
+      : {
+          title: "🔔 ทดสอบการเชื่อมต่อ Discord Webhook สำเร็จ!",
+          description: `ระบบแจ้งเตือนของก๊วน **${groupName || "ก๊วนออมเงิน"}** ได้เชื่อมต่อกับ Discord Webhook นี้เรียบร้อยแล้ว 🎉\nต่อไปเมื่อมีสมาชิกบันทึกสลิปหรือโอนเงินเข้ากลุ่ม ระบบจะแจ้งเตือนมายังห้องนี้อัตโนมัติ`,
+          color: 0x5865F2, // Discord Blurple
+          fields: [
+            { name: "🏢 กลุ่ม", value: groupName || "ก๊วนออมเงิน", inline: true },
+            { name: "🕒 เวลาทดสอบ", value: new Date().toLocaleTimeString("th-TH"), inline: true },
+            { name: "🛡️ สถานะ", value: "พร้อมรับแจ้งเตือน (Active)", inline: true },
+          ],
+          footer: {
+            text: "Group Money Tracker • Discord Notification",
+          },
+          timestamp: new Date().toISOString(),
+        };
+
+    const botUsername = isOverdue
+      ? `แจ้งเตือนยอดค้าง • ${groupName || "ก๊วนออมเงิน"}`
+      : "Group Money Bot";
+    const botAvatar = isOverdue
+      ? "https://cdn-icons-png.flaticon.com/512/5501/5501375.png"
+      : "https://cdn-icons-png.flaticon.com/512/9028/9028031.png";
 
     const response = await fetch(webhookUrl.trim(), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        username: "Group Money Bot",
-        avatar_url: "https://cdn-icons-png.flaticon.com/512/9028/9028031.png",
+        username: botUsername,
+        avatar_url: botAvatar,
         embeds: [embed],
       }),
     });
@@ -731,7 +760,7 @@ app.post("/api/discord/bot/disconnect", (req, res) => {
 // Can be called to test preview in UI or push to Discord webhook directly
 app.post("/api/discord/command", async (req, res) => {
   try {
-    const { groupId, command, sendToWebhook } = req.body;
+    const { groupId, command, sendToWebhook, webhookUrl } = req.body;
     if (!groupId || !command) {
       return res.status(400).json({ success: false, error: "Missing groupId or command." });
     }
@@ -743,6 +772,11 @@ app.post("/api/discord/command", async (req, res) => {
 
     const cmd = String(command).trim().toLowerCase();
     let embed;
+    const isOverdueCheck =
+      cmd.startsWith("!เช็ค") ||
+      cmd.startsWith("!check") ||
+      cmd.startsWith("!ค้าง") ||
+      cmd.startsWith("!หนี้");
 
     if (
       cmd.startsWith("!เช็คก่อน") ||
@@ -772,16 +806,32 @@ app.post("/api/discord/command", async (req, res) => {
     }
 
     let webhookResult = null;
-    if (sendToWebhook && data.group.discordWebhookUrl && isValidDiscordWebhookUrl(data.group.discordWebhookUrl)) {
+    const targetWebhook =
+      webhookUrl ||
+      (isOverdueCheck && data.group.discordOverdueWebhookUrl
+        ? data.group.discordOverdueWebhookUrl
+        : data.group.discordWebhookUrl);
+
+    if (sendToWebhook && targetWebhook && isValidDiscordWebhookUrl(targetWebhook)) {
       try {
-        const discordRes = await fetch(data.group.discordWebhookUrl.trim(), {
+        const payload: Record<string, any> = {
+          username: isOverdueCheck
+            ? `แจ้งเตือนยอดค้าง • ${data.group.name || "ก๊วนออมเงิน"}`
+            : (data.group.name ? `Group Money • ${data.group.name}` : "Group Money Bot"),
+          avatar_url: isOverdueCheck
+            ? "https://cdn-icons-png.flaticon.com/512/5501/5501375.png"
+            : "https://cdn-icons-png.flaticon.com/512/9028/9028031.png",
+          embeds: [embed],
+        };
+
+        if (isOverdueCheck && data.group.discordOverdueMentionText?.trim()) {
+          payload.content = data.group.discordOverdueMentionText.trim();
+        }
+
+        const discordRes = await fetch(targetWebhook.trim(), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            username: "Group Money Bot",
-            avatar_url: "https://cdn-icons-png.flaticon.com/512/9028/9028031.png",
-            embeds: [embed],
-          }),
+          body: JSON.stringify(payload),
         });
         webhookResult = {
           sent: discordRes.ok,
@@ -804,6 +854,123 @@ app.post("/api/discord/command", async (req, res) => {
   }
 });
 
+// Discord Webhook: Notify overdue / outstanding balance members list
+app.post("/api/discord/notify-overdue", async (req, res) => {
+  try {
+    const {
+      webhookUrl,
+      groupId,
+      period = "current",
+      mentionText,
+      customNote,
+      group: clientGroup,
+      members: clientMembers,
+      transactions: clientTransactions,
+    } = req.body;
+
+    if (!webhookUrl || typeof webhookUrl !== "string") {
+      return res.status(400).json({ success: false, error: "กรุณาระบุ Webhook URL แจ้งเตือนยอดค้าง" });
+    }
+    if (!isValidDiscordWebhookUrl(webhookUrl.trim())) {
+      return res.status(400).json({
+        success: false,
+        error: "รูปแบบ Webhook URL ไม่ถูกต้อง ต้องขึ้นต้นด้วย https://discord.com/api/webhooks/...",
+      });
+    }
+
+    // Try fetching latest data from server Firestore, or fallback to client provided payload
+    let data = groupId ? await fetchGroupData(groupId) : null;
+    if ((!data || !data.group) && clientGroup && clientMembers) {
+      data = {
+        group: clientGroup,
+        members: clientMembers,
+        transactions: clientTransactions || [],
+      };
+    }
+
+    if (!data || !data.group) {
+      return res.status(404).json({ success: false, error: "ไม่พบข้อมูลกลุ่มหรือสมาชิกสำหรับสรุปยอดค้าง" });
+    }
+
+    const embed = buildCheckEmbed(
+      data.group,
+      data.members,
+      data.transactions,
+      period === "previous" ? "previous" : "current"
+    );
+
+    if (customNote && typeof customNote === "string" && customNote.trim()) {
+      embed.description = `📢 **${customNote.trim()}**\n\n${embed.description || ""}`;
+    }
+
+    const payload: Record<string, any> = {
+      username: `แจ้งเตือนยอดค้าง • ${data.group.name}`,
+      avatar_url: "https://cdn-icons-png.flaticon.com/512/5501/5501375.png",
+      embeds: [embed],
+    };
+
+    if (mentionText && typeof mentionText === "string" && mentionText.trim()) {
+      payload.content = mentionText.trim();
+    }
+
+    const response = await fetch(webhookUrl.trim(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      return res.status(response.status).json({
+        success: false,
+        error: `Discord ปฏิเสธคำขอ (${response.status}): ${errText || response.statusText}`,
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: "ส่งแจ้งเตือนรายชื่อยอดค้างไปยัง Discord สำเร็จแล้ว!",
+      embed,
+    });
+  } catch (err: any) {
+    console.error("Error in /api/discord/notify-overdue:", err);
+    return res.status(500).json({
+      success: false,
+      error: err.message || "เกิดข้อผิดพลาดในการส่งแจ้งเตือนยอดค้างไปยัง Discord",
+    });
+  }
+});
+
+// Import Overdue Scheduler Service
+import {
+  overdueScheduler,
+  executeScheduledOverdueBroadcast,
+  sendOverdueBroadcastForGroup,
+  SCHEDULED_BANGKOK_HOURS,
+} from "./server/overdueScheduler";
+
+// Endpoint to check scheduler status
+app.get("/api/discord/scheduler/status", (req, res) => {
+  const status = overdueScheduler.getStatus();
+  return res.json({ success: true, ...status });
+});
+
+// Endpoint to manually trigger scheduled run for testing (e.g. from UI)
+app.post("/api/discord/scheduler/trigger-now", async (req, res) => {
+  try {
+    const { timeSlot } = req.body;
+    const result = await executeScheduledOverdueBroadcast(timeSlot || undefined);
+    return res.json({
+      success: true,
+      message: `ดำเนินการส่งแจ้งเตือนยอดค้างเรียบร้อย: ตรวจสอบ ${result.checked} กลุ่ม, ส่งสำเร็จ ${result.sent} กลุ่ม (รอบเวลา ${result.timeSlot} น.)`,
+      ...result,
+    });
+  } catch (err: any) {
+    console.error("Error triggering scheduled broadcast:", err);
+    return res.status(500).json({ success: false, error: err.message || "Failed to trigger scheduled run" });
+  }
+});
+
 // Dynamic XML Sitemap Endpoint
 app.get("/sitemap.xml", (req, res) => {
   res.header("Content-Type", "application/xml");
@@ -818,6 +985,21 @@ app.get("/sitemap.xml", (req, res) => {
   </url>
 </urlset>`;
   res.send(sitemap);
+});
+
+// Global Express Error Handler to prevent HTML error pages on API calls
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.error(`[Server Error] ${req.method} ${req.url}:`, err);
+  if (res.headersSent) {
+    return next(err);
+  }
+  if (req.path.startsWith("/api/")) {
+    return res.status(err.status || 500).json({
+      success: false,
+      error: err.message || "เกิดข้อผิดพลาดภายในเซิร์ฟเวอร์",
+    });
+  }
+  return next(err);
 });
 
 // Catch-all for undefined API endpoints to ensure valid JSON response instead of HTML
@@ -860,6 +1042,12 @@ async function startServer() {
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
+    // Start automated overdue notification scheduler (6:00, 12:00, 15:00, 20:00 Bangkok time)
+    try {
+      overdueScheduler.start();
+    } catch (schedErr) {
+      console.error("Failed to start overdue scheduler:", schedErr);
+    }
   });
 }
 

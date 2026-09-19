@@ -5,13 +5,19 @@ import WeeklyChart from "./components/WeeklyChart";
 import SlipUploader from "./components/SlipUploader";
 import MemberManager from "./components/MemberManager";
 import TransactionHistory from "./components/TransactionHistory";
-import { HelpCircle, Landmark, Sparkles, ShieldAlert, ShieldCheck, Trash2, Key, Share2, Copy, Check, Settings, Crown, Users, Pencil, AlertTriangle, RotateCcw, Radio, Send, Bell, Bot, Terminal, ExternalLink, MessageSquareCode, Eye, Play } from "lucide-react";
+import { HelpCircle, Landmark, Sparkles, ShieldAlert, ShieldCheck, Trash2, Key, Share2, Copy, Check, Settings, Crown, Users, Pencil, AlertTriangle, RotateCcw, Radio, Send, Bell, BellRing, Bot, Terminal, ExternalLink, MessageSquareCode, Eye, Play, Clock } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { collection, doc, getDoc, setDoc, deleteDoc, updateDoc, onSnapshot, writeBatch, deleteField, addDoc } from "firebase/firestore";
 import { db } from "./lib/firebase";
 import { restoreStarterGroupData } from "./lib/restoreStarterData";
 import { calculateMemberCarryover } from "./lib/carryover";
-import { safeFetchJson, testDiscordWebhookDirect } from "./lib/safeApi";
+import {
+  safeFetchJson,
+  testDiscordWebhookDirect,
+  testDiscordOverdueWebhookDirect,
+  sendDiscordOverdueWebhookDirect,
+  createClientOverdueEmbed,
+} from "./lib/safeApi";
 
 export default function App() {
   const [groups, setGroups] = useState<Group[]>([]);
@@ -79,12 +85,23 @@ export default function App() {
   const [claimLeaderError, setClaimLeaderError] = useState("");
   const [claimLeaderSuccess, setClaimLeaderSuccess] = useState(false);
 
-  // Discord Webhook & Bot states
+  // Discord Webhook 1 (สลิป/การโอนเงิน) & Bot states
   const [editDiscordWebhookUrl, setEditDiscordWebhookUrl] = useState("");
   const [editDiscordWebhookEnabled, setEditDiscordWebhookEnabled] = useState(false);
   const [editDiscordNotifyOnSlip, setEditDiscordNotifyOnSlip] = useState(true);
   const [editDiscordNotifyOnManualTx, setEditDiscordNotifyOnManualTx] = useState(true);
   const [editDiscordSendSlipImage, setEditDiscordSendSlipImage] = useState(true);
+
+  // Discord Webhook 2 (แจ้งเตือนรายชื่อยอดค้าง)
+  const [editDiscordOverdueWebhookUrl, setEditDiscordOverdueWebhookUrl] = useState("");
+  const [editDiscordOverdueWebhookEnabled, setEditDiscordOverdueWebhookEnabled] = useState(false);
+  const [editDiscordOverdueAutoSchedule, setEditDiscordOverdueAutoSchedule] = useState(true);
+  const [editDiscordOverdueMentionText, setEditDiscordOverdueMentionText] = useState("");
+  const [discordOverdueTesting, setDiscordOverdueTesting] = useState(false);
+  const [discordOverdueTestResult, setDiscordOverdueTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [discordOverdueBroadcasting, setDiscordOverdueBroadcasting] = useState(false);
+  const [discordOverdueBroadcastResult, setDiscordOverdueBroadcastResult] = useState<{ success: boolean; message: string } | null>(null);
+
   const [editDiscordBotToken, setEditDiscordBotToken] = useState("");
   const [editDiscordBotEnabled, setEditDiscordBotEnabled] = useState(false);
   const [editDiscordChannelId, setEditDiscordChannelId] = useState("");
@@ -127,31 +144,49 @@ export default function App() {
 
   // Load state from Firestore in real-time
   useEffect(() => {
-    const unsubscribeGroups = onSnapshot(collection(db, "groups"), (snapshot) => {
-      const fetchedGroups: Group[] = [];
-      snapshot.forEach((doc) => {
-        fetchedGroups.push(doc.data() as Group);
-      });
-      fetchedGroups.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-      setGroups(fetchedGroups);
-    });
+    const unsubscribeGroups = onSnapshot(
+      collection(db, "groups"),
+      (snapshot) => {
+        const fetchedGroups: Group[] = [];
+        snapshot.forEach((doc) => {
+          fetchedGroups.push(doc.data() as Group);
+        });
+        fetchedGroups.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+        setGroups(fetchedGroups);
+      },
+      (error) => {
+        console.error("Firestore groups listener error:", error);
+      }
+    );
 
-    const unsubscribeMembers = onSnapshot(collection(db, "members"), (snapshot) => {
-      const fetchedMembers: Member[] = [];
-      snapshot.forEach((doc) => {
-        fetchedMembers.push(doc.data() as Member);
-      });
-      setMembers(fetchedMembers);
-    });
+    const unsubscribeMembers = onSnapshot(
+      collection(db, "members"),
+      (snapshot) => {
+        const fetchedMembers: Member[] = [];
+        snapshot.forEach((doc) => {
+          fetchedMembers.push(doc.data() as Member);
+        });
+        setMembers(fetchedMembers);
+      },
+      (error) => {
+        console.error("Firestore members listener error:", error);
+      }
+    );
 
-    const unsubscribeTransactions = onSnapshot(collection(db, "transactions"), (snapshot) => {
-      const fetchedTransactions: Transaction[] = [];
-      snapshot.forEach((doc) => {
-        fetchedTransactions.push(doc.data() as Transaction);
-      });
-      fetchedTransactions.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-      setTransactions(fetchedTransactions);
-    });
+    const unsubscribeTransactions = onSnapshot(
+      collection(db, "transactions"),
+      (snapshot) => {
+        const fetchedTransactions: Transaction[] = [];
+        snapshot.forEach((doc) => {
+          fetchedTransactions.push(doc.data() as Transaction);
+        });
+        fetchedTransactions.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        setTransactions(fetchedTransactions);
+      },
+      (error) => {
+        console.error("Firestore transactions listener error:", error);
+      }
+    );
 
     return () => {
       unsubscribeGroups();
@@ -360,9 +395,14 @@ export default function App() {
   const handleJoinGroupWithPasscode = (passcode: string): { success: boolean; groupName?: string; error?: string } => {
     const trimmed = passcode.trim();
     if (!trimmed) {
-      return { success: false, error: "กรุณากรอกรหัสผ่านกลุ่ม" };
+      return { success: false, error: "กรุณากรอกรหัสผ่านกลุ่มหรือชื่อก๊วน" };
     }
-    const foundGroup = groups.find((g) => g.passcode && g.passcode.trim() === trimmed);
+    const lowerTrimmed = trimmed.toLowerCase();
+    const foundGroup = groups.find(
+      (g) =>
+        (g.passcode && g.passcode.trim().toLowerCase() === lowerTrimmed) ||
+        (g.name && g.name.trim().toLowerCase() === lowerTrimmed)
+    );
     if (foundGroup) {
       setUnlockedGroupIds((prev) => {
         const next = prev.includes(foundGroup.id) ? prev : [...prev, foundGroup.id];
@@ -373,7 +413,7 @@ export default function App() {
       localStorage.setItem("sb_active_id", foundGroup.id);
       return { success: true, groupName: foundGroup.name };
     }
-    return { success: false, error: "ไม่พบกลุ่มที่ตรงกับรหัสผ่านนี้ หรือรหัสผ่านไม่ถูกต้อง" };
+    return { success: false, error: "ไม่พบกลุ่มที่ตรงกับรหัสผ่านหรือชื่อก๊วนนี้" };
   };
 
   const handleAddMember = async (name: string, nickname: string) => {
@@ -477,7 +517,7 @@ export default function App() {
   };
 
   const handleRestoreStarterData = async () => {
-    if (!isLeader) {
+    if (groups.length > 0 && !isLeader) {
       alert("เฉพาะหัวหน้าก๊วนเท่านั้นที่สามารถคืนค่าระบบได้");
       return;
     }
@@ -691,42 +731,6 @@ export default function App() {
     } catch (err) {
       console.error("Error updating member custom late fee:", err);
       alert("เกิดข้อผิดพลาดในการตั้งค่าปรับเฉพาะบุคคล");
-    }
-  };
-
-  // Set all members in current group to have a 400 Baht deficit
-  const handleSetAllMembersDeficit400 = async () => {
-    if (!activeGroupId || !activeGroup || activeMembers.length === 0) return;
-    if (!isLeader) {
-      alert("เฉพาะหัวหน้าก๊วนเท่านั้นที่สามารถตั้งค่ายอดค้างชำระได้");
-      return;
-    }
-    try {
-      const target = activeGroup.targetAmountPerMember || 200;
-      for (const member of activeMembers) {
-        const carry = calculateMemberCarryover(
-          member.id,
-          activeTransactions,
-          target,
-          activeGroup.createdAt,
-          activeGroup.lateFeePerWeek || 0,
-          0,
-          member.customLateFee
-        );
-        // We want current deficit = 400
-        // deficit = target - available => available = target - 400 (e.g. 200 - 400 = -200)
-        // available = totalPaidAllTime + initialCarryover
-        // initialCarryover = (target - 400) - carry.totalPaidAllTime
-        const targetCarryover = (target - 400) - carry.totalPaidAllTime;
-
-        await updateDoc(doc(db, "members", member.id), {
-          initialCarryover: targetCarryover,
-          manualFine: deleteField(),
-        });
-      }
-    } catch (err) {
-      console.error("Error setting all members deficit to 400:", err);
-      alert("เกิดข้อผิดพลาดในการตั้งค่ายอดค้าง กรุณาลองใหม่อีกครั้ง");
     }
   };
 
@@ -1176,6 +1180,10 @@ export default function App() {
           discordNotifyOnSlip: editDiscordNotifyOnSlip,
           discordNotifyOnManualTx: editDiscordNotifyOnManualTx,
           discordSendSlipImage: editDiscordSendSlipImage,
+          discordOverdueWebhookUrl: editDiscordOverdueWebhookUrl.trim(),
+          discordOverdueWebhookEnabled: editDiscordOverdueWebhookEnabled,
+          discordOverdueAutoSchedule: editDiscordOverdueAutoSchedule,
+          discordOverdueMentionText: editDiscordOverdueMentionText.trim(),
           discordBotToken: editDiscordBotToken.trim(),
           discordBotEnabled: editDiscordBotEnabled,
           discordChannelId: editDiscordChannelId.trim(),
@@ -1269,6 +1277,165 @@ export default function App() {
       });
     } finally {
       setDiscordTesting(false);
+    }
+  };
+
+  const handleTestDiscordOverdueWebhook = async () => {
+    if (!editDiscordOverdueWebhookUrl.trim()) {
+      setDiscordOverdueTestResult({
+        success: false,
+        message: "กรุณาระบุ Webhook URL สำหรับแจ้งเตือนยอดค้างก่อนกดทดสอบ",
+      });
+      return;
+    }
+    setDiscordOverdueTesting(true);
+    setDiscordOverdueTestResult(null);
+    try {
+      const { ok, data, error } = await safeFetchJson<{ success: boolean; message?: string; error?: string }>(
+        "/api/discord/test",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            webhookUrl: editDiscordOverdueWebhookUrl.trim(),
+            groupName: editGroupName.trim() || activeGroup?.name || "ก๊วนออมเงิน",
+            webhookType: "overdue",
+          }),
+        }
+      );
+
+      if (!ok || !data?.success) {
+        // Fallback to direct client-side test
+        try {
+          const direct = await testDiscordOverdueWebhookDirect(
+            editDiscordOverdueWebhookUrl.trim(),
+            editGroupName.trim() || activeGroup?.name || "ก๊วนออมเงิน"
+          );
+          if (direct.success) {
+            setDiscordOverdueTestResult({
+              success: true,
+              message: "ส่งข้อความทดสอบแจ้งเตือนยอดค้างตรงไปยัง Discord Webhook สำเร็จแล้ว! 🎉",
+            });
+            return;
+          }
+        } catch (directErr: any) {
+          console.warn("Direct overdue webhook send error:", directErr);
+        }
+
+        setDiscordOverdueTestResult({
+          success: false,
+          message: data?.error || error || "ส่งข้อความไม่สำเร็จ โปรดตรวจสอบ Webhook URL แจ้งเตือนยอดค้าง",
+        });
+      } else {
+        setDiscordOverdueTestResult({
+          success: true,
+          message: data.message || "ส่งข้อความทดสอบแจ้งเตือนยอดค้างสำเร็จ! ตรวจสอบในห้อง Discord ได้ทันที",
+        });
+      }
+    } catch (err: any) {
+      setDiscordOverdueTestResult({
+        success: false,
+        message: err.message || "เกิดข้อผิดพลาดในการเชื่อมต่อไปยัง Discord",
+      });
+    } finally {
+      setDiscordOverdueTesting(false);
+    }
+  };
+
+  const handleBroadcastOverdueList = async (
+    period: "current" | "previous" = "current",
+    customWebhookUrl?: string
+  ) => {
+    const targetWebhookUrl = (
+      customWebhookUrl ||
+      editDiscordOverdueWebhookUrl ||
+      activeGroup?.discordOverdueWebhookUrl ||
+      ""
+    ).trim();
+
+    if (!targetWebhookUrl) {
+      setDiscordOverdueBroadcastResult({
+        success: false,
+        message: "กรุณาระบุ Webhook URL แจ้งเตือนยอดค้างก่อนกดส่งแจ้งเตือน",
+      });
+      return;
+    }
+
+    const currentGroup = groups.find((g) => g.id === activeGroupId);
+    if (!currentGroup) return;
+
+    setDiscordOverdueBroadcasting(true);
+    setDiscordOverdueBroadcastResult(null);
+
+    const groupMembers = members.filter((m) => m.groupId === activeGroupId);
+    const groupTxs = transactions.filter((t) => t.groupId === activeGroupId);
+
+    try {
+      const { ok, data, error } = await safeFetchJson<{
+        success: boolean;
+        message?: string;
+        embed?: any;
+        error?: string;
+      }>("/api/discord/notify-overdue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          webhookUrl: targetWebhookUrl,
+          groupId: activeGroupId,
+          period,
+          mentionText:
+            editDiscordOverdueMentionText.trim() ||
+            currentGroup.discordOverdueMentionText ||
+            undefined,
+          group: currentGroup,
+          members: groupMembers,
+          transactions: groupTxs,
+        }),
+      });
+
+      if (!ok || !data?.success) {
+        // Fallback to direct client-side notification
+        try {
+          const checkEmbed = createClientOverdueEmbed(
+            currentGroup,
+            groupMembers,
+            groupTxs,
+            period
+          );
+          await sendDiscordOverdueWebhookDirect(
+            targetWebhookUrl,
+            currentGroup.name,
+            checkEmbed,
+            editDiscordOverdueMentionText.trim() || currentGroup.discordOverdueMentionText
+          );
+          setDiscordOverdueBroadcastResult({
+            success: true,
+            message: `ส่งรายงานรายชื่อยอดค้าง (${period === "previous" ? "อาทิตย์ก่อน" : "รอบปัจจุบัน"}) ไปยัง Discord Webhook สำเร็จแล้ว! 🎉`,
+          });
+          return;
+        } catch (directErr: any) {
+          console.warn("Direct send overdue webhook error:", directErr);
+        }
+
+        setDiscordOverdueBroadcastResult({
+          success: false,
+          message: data?.error || error || "ไม่สามารถส่งแจ้งเตือนยอดค้างไปยัง Discord ได้",
+        });
+      } else {
+        setDiscordOverdueBroadcastResult({
+          success: true,
+          message:
+            data.message ||
+            `ส่งรายงานรายชื่อยอดค้าง (${period === "previous" ? "อาทิตย์ก่อน" : "รอบปัจจุบัน"}) เข้า Discord เรียบร้อยแล้ว! 🎉`,
+        });
+      }
+    } catch (err: any) {
+      setDiscordOverdueBroadcastResult({
+        success: false,
+        message: err.message || "เกิดข้อผิดพลาดในการส่งแจ้งเตือนยอดค้าง",
+      });
+    } finally {
+      setDiscordOverdueBroadcasting(false);
     }
   };
 
@@ -1417,6 +1584,12 @@ export default function App() {
     setEditDiscordNotifyOnSlip(group.discordNotifyOnSlip ?? true);
     setEditDiscordNotifyOnManualTx(group.discordNotifyOnManualTx ?? true);
     setEditDiscordSendSlipImage(group.discordSendSlipImage ?? true);
+    setEditDiscordOverdueWebhookUrl(group.discordOverdueWebhookUrl || "");
+    setEditDiscordOverdueWebhookEnabled(group.discordOverdueWebhookEnabled ?? false);
+    setEditDiscordOverdueAutoSchedule(group.discordOverdueAutoSchedule ?? true);
+    setEditDiscordOverdueMentionText(group.discordOverdueMentionText || "");
+    setDiscordOverdueTestResult(null);
+    setDiscordOverdueBroadcastResult(null);
     setEditDiscordBotToken(group.discordBotToken || "");
     setEditDiscordBotEnabled(group.discordBotEnabled ?? false);
     setEditDiscordChannelId(group.discordChannelId || "");
@@ -1452,7 +1625,8 @@ export default function App() {
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans" id="app-root">
       {/* Header Stat Board */}
       <Header
-        groups={visibleGroups}
+        groups={groups}
+        unlockedGroupIds={unlockedGroupIds}
         activeGroupId={activeGroupId}
         onGroupChange={handleGroupChange}
         onAddGroup={handleAddGroup}
@@ -1632,7 +1806,14 @@ export default function App() {
                   onEditMember={handleEditMember}
                   onUpdateMemberCustomLateFee={handleUpdateMemberCustomLateFee}
                   onUpdateLateFee={handleUpdateGroupLateFee}
-                  onSetAllDeficit400={handleSetAllMembersDeficit400}
+                  onBroadcastOverdueToDiscord={() => {
+                    if (activeGroup.discordOverdueWebhookUrl) {
+                      handleBroadcastOverdueList("current");
+                    } else {
+                      openGroupSettingsModal();
+                    }
+                  }}
+                  hasOverdueWebhook={Boolean(activeGroup.discordOverdueWebhookUrl)}
                   isLeader={isLeader}
                   isGlobalLeader={isLeader}
                   profileMemberId={profileMemberId}
@@ -1651,6 +1832,55 @@ export default function App() {
             <p className="text-sm text-slate-400 font-sans mb-8 leading-relaxed">
               คุณยังไม่ได้เลือกกลุ่ม หรือกลุ่มของคุณเป็นกลุ่มส่วนตัวที่ต้องใช้รหัสผ่านในการเข้าร่วม กรุณาเข้าร่วมกลุ่มด้วยรหัสผ่าน หรือสร้างกลุ่มใหม่ด้านบนเพื่อเริ่มต้น!
             </p>
+
+            {groups.length > 0 && (
+              <div className="w-full bg-slate-900/80 border border-slate-800 p-4 rounded-3xl mb-4 text-left shadow-lg">
+                <p className="text-xs font-bold text-slate-300 mb-3 flex items-center gap-1.5">
+                  <Landmark className="w-4 h-4 text-emerald-400" /> พบก๊วนในระบบ ({groups.length} กลุ่ม):
+                </p>
+                <div className="space-y-2">
+                  {groups.map((g) => {
+                    const isUnlocked = !g.passcode || unlockedGroupIds.includes(g.id) || createdGroupIds.includes(g.id);
+                    return (
+                      <div
+                        key={g.id}
+                        className="flex items-center justify-between p-3 bg-slate-950/80 border border-slate-800/80 rounded-2xl hover:border-emerald-500/40 transition"
+                      >
+                        <div className="min-w-0 pr-2">
+                          <span className="text-sm font-bold text-slate-100 flex items-center gap-1.5 truncate">
+                            {g.name}
+                            {g.passcode ? (
+                              <span className="text-[10px] bg-amber-500/15 border border-amber-500/30 text-amber-300 px-1.5 py-0.5 rounded font-mono shrink-0">
+                                🔒 มีรหัส
+                              </span>
+                            ) : (
+                              <span className="text-[10px] bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 px-1.5 py-0.5 rounded shrink-0">
+                                สาธารณะ
+                              </span>
+                            )}
+                          </span>
+                          {g.description && <p className="text-xs text-slate-400 mt-0.5 truncate">{g.description}</p>}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (isUnlocked) {
+                              setUnlockedGroupIds((prev) => Array.from(new Set([...prev, g.id])));
+                              setActiveGroupId(g.id);
+                            } else {
+                              setOnboardCode(g.passcode || g.name);
+                            }
+                          }}
+                          className="text-xs bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-3.5 py-1.5 rounded-xl font-bold transition cursor-pointer shrink-0"
+                        >
+                          {isUnlocked ? "เข้าดูก๊วนนี้" : "เลือกก๊วนนี้"}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             <form onSubmit={handleOnboardJoinSubmit} className="w-full bg-slate-900 border border-slate-800 p-6 rounded-3xl space-y-4 shadow-xl">
               <div className="text-left">
@@ -2258,6 +2488,179 @@ export default function App() {
                           <Send className="w-3.5 h-3.5" />
                           <span>{discordTesting ? "กำลังส่งข้อความทดสอบ..." : "🔔 ทดสอบส่งข้อความไปยัง Discord (Test Webhook)"}</span>
                         </button>
+                      </div>
+
+                      {/* SUB-SECTION 2.2: Discord Webhook 2 (แจ้งเตือนรายชื่อยอดค้าง & สรุปยอดหนี้) */}
+                      <div className="bg-slate-900/80 border border-rose-500/20 rounded-xl p-3.5 space-y-3 relative overflow-hidden">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <BellRing className="w-4 h-4 text-rose-400 animate-pulse shrink-0" />
+                            <div>
+                              <span className="text-xs font-bold text-slate-100 flex items-center gap-1.5">
+                                Webhook 2: แจ้งเตือนรายชื่อยอดค้าง
+                                <span className="text-[10px] text-rose-300 font-normal bg-rose-950/60 border border-rose-500/30 px-1.5 py-0.5 rounded">
+                                  รายชื่อยอดค้าง & ค่าปรับ
+                                </span>
+                              </span>
+                            </div>
+                          </div>
+                          <label className="relative inline-flex items-center cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={editDiscordOverdueWebhookEnabled}
+                              onChange={(e) => setEditDiscordOverdueWebhookEnabled(e.target.checked)}
+                              className="sr-only peer"
+                            />
+                            <div className="w-9 h-5 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-rose-600"></div>
+                            <span className="ml-2 text-xs font-semibold text-slate-300">
+                              {editDiscordOverdueWebhookEnabled ? "เปิด" : "ปิด"}
+                            </span>
+                          </label>
+                        </div>
+
+                        <p className="text-[11px] text-slate-400 leading-relaxed">
+                          ช่องทางส่งการ์ดสรุปรายชื่อคนที่ยังไม่โอนเงิน พร้อมยอดหนี้และค่าปรับโดยเฉพาะ เข้าห้อง Discord ที่ต้องการ (เช่น ห้อง #เตือนยอดค้าง หรือ #การเงิน)
+                        </p>
+
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-300 mb-1">
+                            Discord Webhook URL (แจ้งเตือนยอดค้าง)
+                          </label>
+                          <input
+                            type="url"
+                            value={editDiscordOverdueWebhookUrl}
+                            onChange={(e) => {
+                              setEditDiscordOverdueWebhookUrl(e.target.value);
+                              setDiscordOverdueTestResult(null);
+                              setDiscordOverdueBroadcastResult(null);
+                            }}
+                            placeholder="https://discord.com/api/webhooks/..."
+                            className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs font-mono focus:outline-none focus:border-rose-500 text-rose-200 transition shadow-inner"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-300 mb-1 flex items-center justify-between">
+                            <span>ข้อความแท็ก / Mention เวลาเตือนยอดค้าง (ไม่บังคับ)</span>
+                            <span className="text-[10px] text-slate-500 font-mono">เช่น @everyone หรือ @here</span>
+                          </label>
+                          <input
+                            type="text"
+                            value={editDiscordOverdueMentionText}
+                            onChange={(e) => setEditDiscordOverdueMentionText(e.target.value)}
+                            placeholder="@everyone อย่าลืมโอนเงินเข้าก๊วนประจำสัปดาห์นี้นะครับ!"
+                            className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs focus:outline-none focus:border-rose-500 text-slate-200 transition shadow-inner"
+                          />
+                        </div>
+
+                        {/* Automated Schedule Info & Toggle: 06:00, 12:00, 15:00, 20:00 */}
+                        <div className="bg-slate-950/70 border border-amber-500/20 rounded-xl p-3 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-1.5">
+                              <Clock className="w-3.5 h-3.5 text-amber-400" />
+                              <span className="text-xs font-bold text-slate-200">
+                                แจ้งเตือนอัตโนมัติ 4 เวลาต่อวัน
+                              </span>
+                            </div>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={editDiscordOverdueAutoSchedule}
+                                onChange={(e) => setEditDiscordOverdueAutoSchedule(e.target.checked)}
+                                className="sr-only peer"
+                              />
+                              <div className="w-8 h-4 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[1px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-amber-500"></div>
+                              <span className="ml-1.5 text-[11px] font-semibold text-slate-300">
+                                {editDiscordOverdueAutoSchedule ? "เปิดส่งอัตโนมัติ" : "ปิด"}
+                              </span>
+                            </label>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                            <span className="text-[11px] text-slate-400">รอบเวลาส่ง (เวลาไทย GMT+7):</span>
+                            {["06:00", "12:00", "15:00", "20:00"].map((time) => (
+                              <span
+                                key={time}
+                                className={`text-[11px] font-mono px-2 py-0.5 rounded-md border font-semibold ${
+                                  editDiscordOverdueAutoSchedule
+                                    ? "bg-amber-950/50 border-amber-500/40 text-amber-300"
+                                    : "bg-slate-800 border-slate-700 text-slate-500 line-through"
+                                }`}
+                              >
+                                ⏰ {time} น.
+                              </span>
+                            ))}
+                          </div>
+                          <p className="text-[10px] text-slate-500 leading-relaxed">
+                            ระบบแบ็กเอนด์จะสรุปรายชื่อคนที่ยังค้างชำระ ยอดเงิน และค่าปรับ แล้วส่งการ์ดแจ้งเตือนเข้า Webhook นี้โดยอัตโนมัติเมื่อถึงเวลา 06:00, 12:00, 15:00 และ 20:00 น.
+                          </p>
+                        </div>
+
+                        {/* Test & Broadcast buttons */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                          <button
+                            type="button"
+                            disabled={discordOverdueTesting || !editDiscordOverdueWebhookUrl.trim()}
+                            onClick={handleTestDiscordOverdueWebhook}
+                            className={`py-2 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition ${
+                              discordOverdueTesting || !editDiscordOverdueWebhookUrl.trim()
+                                ? "bg-slate-800/60 text-slate-600 border border-slate-800 cursor-not-allowed"
+                                : "bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/40 cursor-pointer shadow-sm active:scale-98"
+                            }`}
+                          >
+                            <Send className="w-3.5 h-3.5" />
+                            <span>{discordOverdueTesting ? "กำลังส่งทดสอบ..." : "🔔 ทดสอบ Webhook ยอดค้าง"}</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            disabled={discordOverdueBroadcasting || !editDiscordOverdueWebhookUrl.trim()}
+                            onClick={() => handleBroadcastOverdueList("current")}
+                            className={`py-2 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition ${
+                              discordOverdueBroadcasting || !editDiscordOverdueWebhookUrl.trim()
+                                ? "bg-slate-800/60 text-slate-600 border border-slate-800 cursor-not-allowed"
+                                : "bg-gradient-to-r from-rose-600 to-rose-700 hover:from-rose-500 hover:to-rose-600 text-white font-bold cursor-pointer shadow-md active:scale-98"
+                            }`}
+                          >
+                            <BellRing className="w-3.5 h-3.5" />
+                            <span>{discordOverdueBroadcasting ? "กำลังส่ง..." : "📢 ส่งแจ้งเตือนยอดค้างทันที"}</span>
+                          </button>
+                        </div>
+
+                        {/* Results / Feedback */}
+                        {discordOverdueTestResult && (
+                          <div
+                            className={`p-2.5 rounded-xl text-xs flex items-center gap-2 border ${
+                              discordOverdueTestResult.success
+                                ? "bg-emerald-950/40 border-emerald-500/30 text-emerald-300"
+                                : "bg-rose-950/40 border-rose-500/30 text-rose-300"
+                            }`}
+                          >
+                            {discordOverdueTestResult.success ? (
+                              <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+                            ) : (
+                              <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                            )}
+                            <span className="leading-snug">{discordOverdueTestResult.message}</span>
+                          </div>
+                        )}
+
+                        {discordOverdueBroadcastResult && (
+                          <div
+                            className={`p-2.5 rounded-xl text-xs flex items-center gap-2 border ${
+                              discordOverdueBroadcastResult.success
+                                ? "bg-emerald-950/40 border-emerald-500/30 text-emerald-300"
+                                : "bg-rose-950/40 border-rose-500/30 text-rose-300"
+                            }`}
+                          >
+                            {discordOverdueBroadcastResult.success ? (
+                              <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+                            ) : (
+                              <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+                            )}
+                            <span className="leading-snug">{discordOverdueBroadcastResult.message}</span>
+                          </div>
+                        )}
                       </div>
 
                       {/* SUB-SECTION 3: Interactive Command Simulator & Broadcast */}

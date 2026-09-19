@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { Group, Member, Transaction } from "../types";
-import { Plus, Users, Landmark, PiggyBank, Target, ChevronDown, Lock, Unlock, ShieldAlert, ShieldCheck, Trash2, Key, Copy, Check, Smartphone, RefreshCw, Laptop, Settings, Crown, Edit2, Sparkles, DollarSign, Radio, Bot } from "lucide-react";
+import { Plus, Users, Landmark, PiggyBank, Target, ChevronDown, Lock, Unlock, ShieldAlert, ShieldCheck, Trash2, Key, Copy, Check, Smartphone, RefreshCw, Laptop, Settings, Crown, Edit2, Sparkles, DollarSign, Radio, Bot, BellRing } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { calculateMemberCarryover } from "../lib/carryover";
 
@@ -18,6 +18,7 @@ interface HeaderProps {
   deviceId?: string;
   onSyncDevice?: (targetDeviceId: string) => Promise<{ success: boolean; error?: string }>;
   onChangeDeviceId?: (newDeviceId: string) => Promise<{ success: boolean; error?: string }>;
+  unlockedGroupIds?: string[];
   // Profile settings props
   profileNickname?: string;
   profileRealName?: string;
@@ -42,6 +43,7 @@ export default function Header({
   deviceId = "",
   onSyncDevice,
   onChangeDeviceId,
+  unlockedGroupIds = [],
   profileNickname = "",
   profileRealName = "",
   profileEmoji = "🦊",
@@ -355,11 +357,22 @@ export default function Header({
                {activeGroup?.discordWebhookEnabled && activeGroup?.discordWebhookUrl && (
                  <div
                    className="flex items-center gap-1.5 bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 px-3 py-2 rounded-xl text-xs font-sans font-bold shadow-sm"
-                   title="ระบบเชื่อมต่อกับ Discord Webhook เรียบร้อยแล้ว (จะแจ้งเตือนเมื่อมียอดเงินเข้า)"
+                   title="ระบบเชื่อมต่อกับ Discord Webhook แจ้งเตือนสลิป/ยอดเงินเข้าเรียบร้อยแล้ว"
                  >
                    <Radio className="w-3.5 h-3.5 text-emerald-400 animate-pulse shrink-0" />
-                   <span className="hidden sm:inline">Discord Webhook</span>
-                   <span className="sm:hidden">Webhook</span>
+                   <span className="hidden sm:inline">Webhook สลิป</span>
+                   <span className="sm:hidden">สลิป</span>
+                 </div>
+               )}
+
+               {activeGroup?.discordOverdueWebhookEnabled && activeGroup?.discordOverdueWebhookUrl && (
+                 <div
+                   className="flex items-center gap-1.5 bg-rose-500/15 text-rose-300 border border-rose-500/30 px-3 py-2 rounded-xl text-xs font-sans font-bold shadow-sm"
+                   title="ระบบเชื่อมต่อกับ Discord Webhook แจ้งเตือนรายชื่อยอดค้าง เรียบร้อยแล้ว"
+                 >
+                   <BellRing className="w-3.5 h-3.5 text-rose-400 animate-pulse shrink-0" />
+                   <span className="hidden sm:inline">Webhook เตือนยอดค้าง</span>
+                   <span className="sm:hidden">เตือนยอดค้าง</span>
                  </div>
                )}
 
@@ -396,41 +409,59 @@ export default function Header({
                     </div>
                     <div className="max-h-60 overflow-y-auto space-y-1">
                       {groups.length === 0 ? (
-                        <p className="text-xs text-slate-500 text-center py-4">ไม่มีกลุ่มที่มองเห็น</p>
+                        <p className="text-xs text-slate-500 text-center py-4">ยังไม่มีกลุ่มในระบบ</p>
                       ) : (
-                        groups.map((g) => (
-                          <button
-                            key={g.id}
-                            onClick={() => {
-                              onGroupChange(g.id);
-                              setShowSelector(false);
-                            }}
-                            className={`w-full text-left px-3 py-2 rounded-xl text-sm transition duration-150 ${
-                              g.id === activeGroupId
-                                ? "bg-emerald-500/10 text-emerald-400 font-semibold border-l-2 border-emerald-500"
-                                : "hover:bg-slate-700/50 text-slate-300"
-                            }`}
-                          >
-                            <div className="flex justify-between items-center gap-2">
-                              <div className="flex flex-col truncate">
-                                <span className="truncate flex items-center gap-1">
-                                  {g.name}
-                                  {g.passcode && (
-                                    <Key className="w-3 h-3 text-amber-400 shrink-0" title="กลุ่มล็อกรหัสผ่าน" />
-                                  )}
-                                </span>
-                                {createdGroupIds.includes(g.id) && g.passcode && (
-                                  <span className="text-[10px] text-amber-400 font-mono font-medium truncate">
-                                    รหัสเข้ากลุ่ม: {g.passcode}
+                        groups.map((g) => {
+                          const isUnlocked =
+                            !g.passcode ||
+                            unlockedGroupIds.includes(g.id) ||
+                            createdGroupIds.includes(g.id);
+
+                          return (
+                            <button
+                              key={g.id}
+                              onClick={() => {
+                                if (isUnlocked) {
+                                  onGroupChange(g.id);
+                                  setShowSelector(false);
+                                } else {
+                                  setJoinPasscode(g.passcode || "");
+                                  setShowJoinModal(true);
+                                  setShowSelector(false);
+                                }
+                              }}
+                              className={`w-full text-left px-3 py-2 rounded-xl text-sm transition duration-150 ${
+                                g.id === activeGroupId
+                                  ? "bg-emerald-500/10 text-emerald-400 font-semibold border-l-2 border-emerald-500"
+                                  : "hover:bg-slate-700/50 text-slate-300"
+                              }`}
+                            >
+                              <div className="flex justify-between items-center gap-2">
+                                <div className="flex flex-col truncate">
+                                  <span className="truncate flex items-center gap-1">
+                                    {g.name}
+                                    {g.passcode && (
+                                      <Key className="w-3 h-3 text-amber-400 shrink-0" title="กลุ่มล็อกรหัสผ่าน" />
+                                    )}
+                                    {!isUnlocked && (
+                                      <span className="text-[10px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded ml-1 font-sans">
+                                        ใส่รหัสเข้าดู
+                                      </span>
+                                    )}
                                   </span>
-                                )}
+                                  {createdGroupIds.includes(g.id) && g.passcode && (
+                                    <span className="text-[10px] text-amber-400 font-mono font-medium truncate">
+                                      รหัสเข้ากลุ่ม: {g.passcode}
+                                    </span>
+                                  )}
+                                </div>
+                                <span className="text-[11px] font-mono text-slate-400 bg-slate-900 px-1.5 py-0.5 rounded shrink-0">
+                                  ฿{g.targetAmountPerMember}
+                                </span>
                               </div>
-                              <span className="text-[11px] font-mono text-slate-400 bg-slate-900 px-1.5 py-0.5 rounded shrink-0">
-                                ฿{g.targetAmountPerMember}
-                              </span>
-                            </div>
-                          </button>
-                        ))
+                            </button>
+                          );
+                        })
                       )}
                     </div>
                     <div className="border-t border-slate-700/50 mt-2 pt-2">

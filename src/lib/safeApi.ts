@@ -2,6 +2,8 @@
  * Safe API request helper that guarantees no JSON parsing crashes on HTML responses.
  * Prevents "Unexpected token 'T', 'The page c'... is not valid JSON" errors.
  */
+import { calculateMemberCarryover } from "./carryover";
+import { Group, Member, Transaction } from "../types";
 
 export interface SafeApiResponse<T = any> {
   ok: boolean;
@@ -105,3 +107,214 @@ export async function testDiscordWebhookDirect(webhookUrl: string, groupName: st
   }
   return { success: true };
 }
+
+/**
+ * Direct Discord Overdue Webhook test from browser
+ */
+export async function testDiscordOverdueWebhookDirect(webhookUrl: string, groupName: string) {
+  const embed = {
+    title: "🚨 ทดสอบการเชื่อมต่อ Webhook แจ้งเตือนยอดค้าง สำเร็จ!",
+    description: `ระบบแจ้งเตือนรายชื่อยอดค้างของก๊วน **${groupName || "ก๊วนออมเงิน"}** ได้เชื่อมต่อเรียบร้อยแล้ว\nพร้อมสำหรับส่งรายงานสรุปยอดค้างและรายชื่อสมาชิกที่ยังไม่โอนเงิน 📋`,
+    color: 0xEF4444, // Red
+    fields: [
+      { name: "🏢 ก๊วน", value: groupName || "ก๊วนออมเงิน", inline: true },
+      { name: "📌 ประเภท Webhook", value: "แจ้งเตือนรายชื่อยอดค้าง", inline: true },
+      { name: "🕒 เวลาทดสอบ", value: new Date().toLocaleTimeString("th-TH"), inline: true },
+    ],
+    footer: { text: "Group Money Tracker • Overdue Reminder Webhook" },
+    timestamp: new Date().toISOString(),
+  };
+
+  const response = await fetch(webhookUrl.trim(), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      username: `แจ้งเตือนยอดค้าง • ${groupName || "ก๊วนออมเงิน"}`,
+      avatar_url: "https://cdn-icons-png.flaticon.com/512/5501/5501375.png",
+      embeds: [embed],
+    }),
+  });
+
+  if (!response.ok) {
+    const txt = await response.text();
+    throw new Error(`Discord Webhook error (${response.status}): ${txt}`);
+  }
+  return { success: true };
+}
+
+/**
+ * Direct Discord Overdue Webhook notification sender from browser
+ */
+export async function sendDiscordOverdueWebhookDirect(
+  webhookUrl: string,
+  groupName: string,
+  embed: any,
+  mentionText?: string
+) {
+  const payload: Record<string, any> = {
+    username: `แจ้งเตือนยอดค้าง • ${groupName || "ก๊วนออมเงิน"}`,
+    avatar_url: "https://cdn-icons-png.flaticon.com/512/5501/5501375.png",
+    embeds: [embed],
+  };
+
+  if (mentionText && mentionText.trim()) {
+    payload.content = mentionText.trim();
+  }
+
+  const response = await fetch(webhookUrl.trim(), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const txt = await response.text();
+    throw new Error(`Discord Webhook error (${response.status}): ${txt}`);
+  }
+  return { success: true };
+}
+
+/**
+ * Helper to build an Overdue Discord Embed directly in browser
+ */
+export function createClientOverdueEmbed(
+  group: Group,
+  members: Member[],
+  transactions: Transaction[],
+  period: "current" | "previous" = "current"
+) {
+  const isPrevious = period === "previous";
+  const targetPerMember = group.targetAmountPerMember || 0;
+  const lateFeePerWeek = group.lateFeePerWeek || 0;
+
+  if (members.length === 0) {
+    return {
+      title: `📋 สรุปสถานะการโอนเงิน: ${group.name}`,
+      description: "ยังไม่มีสมาชิกในก๊วนนี้",
+      color: 0x64748b,
+      fields: [],
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  const memberStatuses = members.map((member) => {
+    const calc = calculateMemberCarryover(
+      member.id,
+      transactions,
+      targetPerMember,
+      group.createdAt,
+      lateFeePerWeek,
+      member.initialCarryover || 0,
+      member.customLateFee
+    );
+
+    const manualFine = Number(member.manualFine || 0);
+    const weeksCount = calc.weeksHistory.length;
+
+    let targetWeekData;
+    let deficit = 0;
+    let isPaidFully = false;
+    let rawPaid = 0;
+    let totalLateFee = 0;
+    let carriedOut = 0;
+
+    if (isPrevious && weeksCount >= 2) {
+      targetWeekData = calc.weeksHistory[weeksCount - 2];
+      deficit = targetWeekData.deficit || 0;
+      isPaidFully = targetWeekData.isPaidFully && deficit <= 0;
+      rawPaid = targetWeekData.rawPaid || 0;
+      carriedOut = targetWeekData.carriedOut || 0;
+      totalLateFee = targetWeekData.lateFee || 0;
+    } else {
+      targetWeekData = calc.weeksHistory[weeksCount - 1];
+      deficit = (calc.currentWeekStatus.deficit || 0) + manualFine;
+      isPaidFully = calc.currentWeekStatus.isPaidFully && manualFine === 0 && deficit <= 0;
+      rawPaid = calc.currentWeekStatus.rawPaidThisWeek || 0;
+      carriedOut = calc.currentWeekStatus.carriedOut || 0;
+      totalLateFee = (calc.currentWeekStatus.lateFeeThisWeek || 0) + manualFine;
+    }
+
+    return {
+      member,
+      deficit,
+      isPaidFully,
+      rawPaid,
+      carriedOut,
+      totalLateFee,
+      targetWeekData,
+    };
+  });
+
+  const unpaidList = memberStatuses.filter((s) => !s.isPaidFully || s.deficit > 0);
+  const paidList = memberStatuses.filter((s) => s.isPaidFully && s.deficit <= 0);
+  const totalUnpaidAmount = unpaidList.reduce((sum, s) => sum + s.deficit, 0);
+
+  const targetWeekLabel = memberStatuses[0]?.targetWeekData?.label || (isPrevious ? "อาทิตย์ก่อน" : "รอบปัจจุบัน");
+  const targetCycleLabel = memberStatuses[0]?.targetWeekData?.cycleLabel;
+
+  let unpaidValue = "";
+  if (unpaidList.length === 0) {
+    unpaidValue = isPrevious
+      ? "🎉 **สมาชิกทุกคนโอนเงินครบถ้วนในอาทิตย์ก่อนหน้า ไม่มีใครค้างยอด**"
+      : "🎉 **สมาชิกทุกคนโอนเงินครบถ้วนแล้วในรอบนี้ ไม่มีใครค้างยอด**";
+  } else {
+    unpaidValue = unpaidList
+      .map((s, idx) => {
+        const discordTag = s.member.discordUserId
+          ? ` <@${s.member.discordUserId}>`
+          : s.member.discordUsername ? ` (@${s.member.discordUsername})` : "";
+        const namePart = s.member.name && s.member.name !== s.member.nickname ? ` (${s.member.name})` : "";
+        const finePart = s.totalLateFee > 0 ? ` • ค่าปรับ ฿${s.totalLateFee.toLocaleString("th-TH")}` : "";
+        const paidPart = s.rawPaid > 0 ? ` (โอนแล้ว ฿${s.rawPaid.toLocaleString("th-TH")})` : " (ยังไม่โอน)";
+        return `${idx + 1}. 🔴 **${s.member.nickname}**${discordTag}${namePart}: **ค้างชำระ ฿${s.deficit.toLocaleString("th-TH")}**${paidPart}${finePart}`;
+      })
+      .join("\n");
+  }
+
+  let paidValue = "";
+  if (paidList.length === 0) {
+    paidValue = isPrevious ? "ไม่มีสมาชิกที่โอนครบในอาทิตย์ก่อนหน้า" : "ยังไม่มีสมาชิกโอนเงินครบในรอบนี้";
+  } else {
+    paidValue = paidList
+      .map((s, idx) => {
+        const discordTag = s.member.discordUserId
+          ? ` <@${s.member.discordUserId}>`
+          : s.member.discordUsername ? ` (@${s.member.discordUsername})` : "";
+        const bonusPart = s.carriedOut > 0 ? ` *(ทบเกิน +฿${s.carriedOut.toLocaleString("th-TH")})*` : "";
+        return `${idx + 1}. 🟢 **${s.member.nickname}**${discordTag}: โอนแล้ว ฿${s.rawPaid.toLocaleString("th-TH")}${bonusPart}`;
+      })
+      .join("\n");
+  }
+
+  const embedColor = unpaidList.length > 0 ? 0xef4444 : 0x10b981;
+  const cycleDetails = targetCycleLabel ? `\n⏰ ช่วงเวลารอบนี้: **${targetCycleLabel}**` : "\n⏰ ตัดรอบ: **ทุกวันจันทร์ เวลา 00:00 น.**";
+
+  return {
+    title: isPrevious ? `📋 สรุปสถานะการโอนเงิน (อาทิตย์ก่อน): ${group.name}` : `📋 สรุปสถานะการโอนเงิน (รอบปัจจุบัน): ${group.name}`,
+    description: `📅 ${isPrevious ? "รอบอาทิตย์ก่อน" : "รอบสัปดาห์ปัจจุบัน"}: **${targetWeekLabel}**${cycleDetails}\n🎯 เป้าหมายคนละ: **฿${targetPerMember.toLocaleString("th-TH")}**${lateFeePerWeek > 0 ? ` (ค่าปรับจ่ายช้า ฿${lateFeePerWeek.toLocaleString("th-TH")}/สัปดาห์)` : ""}`,
+    color: embedColor,
+    fields: [
+      {
+        name: isPrevious ? `❌ สมาชิกที่ค้างจ่ายในอาทิตย์ก่อน (${unpaidList.length} คน)` : `❌ ยังไม่โอน / ค้างชำระในรอบปัจจุบัน (${unpaidList.length} คน)`,
+        value: unpaidValue.length > 1024 ? unpaidValue.slice(0, 1020) + "..." : unpaidValue,
+        inline: false,
+      },
+      {
+        name: isPrevious ? `✅ โอนครบแล้วในอาทิตย์ก่อน (${paidList.length} คน)` : `✅ โอนครบแล้วในรอบปัจจุบัน (${paidList.length} คน)`,
+        value: paidValue.length > 1024 ? paidValue.slice(0, 1020) + "..." : paidValue,
+        inline: false,
+      },
+      {
+        name: "📊 สรุปยอดค้างชำระ",
+        value: `🔴 ค้างชำระทั้งหมด: **${unpaidList.length} คน** • ยอดรวมค้าง: **฿${totalUnpaidAmount.toLocaleString("th-TH")}**\n🟢 โอนครบถ้วนแล้ว: **${paidList.length} / ${members.length} คน**`,
+        inline: false,
+      },
+    ],
+    footer: {
+      text: "Group Money Tracker • แจ้งเตือนรายชื่อยอดค้าง",
+    },
+    timestamp: new Date().toISOString(),
+  };
+}
+
+

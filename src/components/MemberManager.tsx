@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Member, Transaction } from "../types";
-import { Users, Plus, Search, ChevronRight, UserCheck, AlertTriangle, Sparkles, Trash2, Lock, Edit2, Check, X, Calendar, Clock, Landmark, CreditCard, Info, Award, ArrowRightLeft, Coins, History, Zap, FileImage } from "lucide-react";
+import { Users, Plus, Search, ChevronRight, UserCheck, AlertTriangle, Sparkles, Trash2, Lock, Edit2, Check, X, Calendar, Clock, Landmark, CreditCard, Info, Award, ArrowRightLeft, Coins, History, FileImage, BellRing } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { calculateMemberCarryover, MemberCarryoverResult } from "../lib/carryover";
 import SlipImageViewerModal from "./SlipImageViewerModal";
@@ -26,7 +26,8 @@ interface MemberManagerProps {
   ) => void;
   onUpdateMemberCustomLateFee?: (memberId: string, customLateFee: number | undefined) => Promise<void> | void;
   onUpdateLateFee?: (lateFeePerWeek: number, lateFeeNote: string) => void;
-  onSetAllDeficit400?: () => Promise<void> | void;
+  onBroadcastOverdueToDiscord?: () => void;
+  hasOverdueWebhook?: boolean;
   isLeader?: boolean;
   isGlobalLeader?: boolean;
   profileMemberId?: string;
@@ -46,7 +47,8 @@ export default function MemberManager({
   onEditMember,
   onUpdateMemberCustomLateFee,
   onUpdateLateFee,
-  onSetAllDeficit400,
+  onBroadcastOverdueToDiscord,
+  hasOverdueWebhook = false,
   isLeader = false,
   isGlobalLeader = false,
   profileMemberId = "",
@@ -199,19 +201,16 @@ export default function MemberManager({
           </span>
         </div>
         <div className="flex items-center gap-2">
-          {isLeader && onSetAllDeficit400 && (
+          {isLeader && onBroadcastOverdueToDiscord && (
             <button
               type="button"
-              onClick={() => {
-                if (confirm("คุณต้องการปรับให้สมาชิกทุกคนในก๊วนมียอดค้างชำระเป็น 400 บาท ทันทีหรือไม่? (เฉพาะหัวหน้าก๊วน)")) {
-                  onSetAllDeficit400();
-                }
-              }}
-              className="text-xs font-semibold px-2.5 py-1.5 bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 hover:border-rose-500/50 text-rose-300 hover:text-rose-200 rounded-xl transition cursor-pointer flex items-center gap-1 shadow-sm"
-              title="ตั้งค่าให้สมาชิกทุกคนมียอดค้างชำระรอบนี้เท่ากับ 400 บาท (เฉพาะหัวหน้าก๊วน)"
+              onClick={onBroadcastOverdueToDiscord}
+              className="text-xs font-semibold px-2.5 py-1.5 bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 hover:border-rose-500/50 text-rose-300 hover:text-rose-200 rounded-xl transition cursor-pointer flex items-center gap-1.5 shadow-sm active:scale-98"
+              title="ส่งการ์ดแจ้งเตือนรายชื่อสมาชิกที่ยังค้างชำระเข้า Discord ทันที"
             >
-              <Zap className="w-3.5 h-3.5 text-amber-400" />
-              <span>ตั้งยอดค้างทุกคน ฿400</span>
+              <BellRing className="w-3.5 h-3.5 text-rose-400 animate-pulse" />
+              <span className="hidden sm:inline">เตือนยอดค้าง Discord</span>
+              <span className="sm:hidden">เตือนยอดค้าง</span>
             </button>
           )}
           {isLeader && (

@@ -9,12 +9,19 @@ export interface Group {
   leaderPasscode?: string; // รหัสผ่านสำหรับเพิ่ม/เป็นหัวหน้ากลุ่มร่วม
   coLeaders?: string[]; // รายชื่อหัวหน้ากลุ่มร่วม
   createdAt: string;
-  // Discord Webhook integration
+  // Discord Webhook 1: แจ้งเตือนสลิป & ธุรกรรม
   discordWebhookUrl?: string;
   discordWebhookEnabled?: boolean;
   discordNotifyOnSlip?: boolean;
   discordNotifyOnManualTx?: boolean;
   discordSendSlipImage?: boolean; // ส่งรูปภาพสลิปแนบไปด้วยใน Discord Webhook
+  // Discord Webhook 2: แจ้งเตือนรายชื่อยอดค้าง (Overdue Balances)
+  discordOverdueWebhookUrl?: string;
+  discordOverdueWebhookEnabled?: boolean;
+  discordOverdueMentionText?: string; // เช่น @everyone หรือ @here
+  discordOverdueAutoSchedule?: boolean; // ส่งอัตโนมัติ 06:00, 12:00, 15:00, 20:00 น.
+  discordLastAutoOverdueBroadcast?: string; // วันที่และเวลาที่ส่งอัตโนมัติล่าสุด (ISO)
+  discordLastAutoOverdueSlot?: string; // รอบเวลาล่าสุดที่ส่ง เช่น 06:00, 12:00
   // Discord Bot integration
   discordBotToken?: string;
   discordBotEnabled?: boolean;
