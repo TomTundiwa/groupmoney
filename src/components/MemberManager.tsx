@@ -616,8 +616,8 @@ export default function MemberManager({
                       <AlertTriangle className="w-3 h-3" /> ค้าง ฿{m.carryover.currentWeekStatus.deficit.toLocaleString("th-TH")}
                     </span>
                   ) : (
-                    <span className="text-[9px] font-sans font-bold text-slate-500 bg-slate-800 border border-slate-700 px-2 py-0.5 rounded-full">
-                      ยังไม่โอน
+                    <span className="text-[9px] font-sans font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-full flex items-center gap-0.5">
+                      <AlertTriangle className="w-3 h-3" /> ค้าง ฿{m.carryover.currentWeekStatus.deficit.toLocaleString("th-TH")}
                     </span>
                   )}
 

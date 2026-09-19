@@ -31,8 +31,8 @@ export function buildCheckEmbed(
   transactions: Transaction[],
   period: "current" | "previous" = "current"
 ): DiscordEmbed {
-  const targetPerMember = group.targetAmountPerMember || 0;
-  const lateFeePerWeek = group.lateFeePerWeek || 0;
+  const targetPerMember = Number(group.targetAmountPerMember) || 200;
+  const lateFeePerWeek = Number(group.lateFeePerWeek) || 0;
   const isPrevious = period === "previous";
 
   // If previous week requested but no members, handle gracefully
@@ -88,7 +88,6 @@ export function buildCheckEmbed(
       member.customLateFee
     );
 
-    const manualFine = Number(member.manualFine || 0);
     const weeksCount = calc.weeksHistory.length;
 
     let targetWeekData;
@@ -109,12 +108,12 @@ export function buildCheckEmbed(
       totalLateFee = targetWeekData.lateFee || 0;
     } else {
       targetWeekData = calc.weeksHistory[weeksCount - 1];
-      deficit = (calc.currentWeekStatus.deficit || 0) + manualFine;
-      isPaidFully = calc.currentWeekStatus.isPaidFully && manualFine === 0 && deficit <= 0;
+      deficit = calc.currentWeekStatus.deficit || 0;
+      isPaidFully = calc.currentWeekStatus.isPaidFully && deficit <= 0;
       rawPaid = calc.currentWeekStatus.rawPaidThisWeek || 0;
       available = calc.currentWeekStatus.available || 0;
       carriedOut = calc.currentWeekStatus.carriedOut || 0;
-      totalLateFee = (calc.currentWeekStatus.lateFeeThisWeek || 0) + manualFine;
+      totalLateFee = calc.currentWeekStatus.lateFeeThisWeek || 0;
     }
 
     return {
@@ -134,6 +133,10 @@ export function buildCheckEmbed(
   const paidList = memberStatuses.filter((s) => s.isPaidFully && s.deficit <= 0);
 
   const totalUnpaidAmount = unpaidList.reduce((sum, s) => sum + s.deficit, 0);
+  const totalLateFeeAmount = unpaidList.reduce((sum, s) => sum + s.totalLateFee, 0);
+  const totalPaidThisPeriod = memberStatuses.reduce((sum, s) => sum + (s.rawPaid || 0), 0);
+  const totalFundBalance = (transactions || []).reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+  const groupTotalTarget = targetPerMember * (members.length || 1);
   const targetWeekLabel = memberStatuses[0]?.targetWeekData?.label || (isPrevious ? "อาทิตย์ก่อน" : "รอบปัจจุบัน");
   const targetCycleLabel = memberStatuses[0]?.targetWeekData?.cycleLabel;
 
@@ -150,9 +153,10 @@ export function buildCheckEmbed(
           ? ` <@${s.member.discordUserId}>`
           : (s.member.discordUsername ? ` (@${s.member.discordUsername})` : "");
         const namePart = s.member.name && s.member.name !== s.member.nickname ? ` (${s.member.name})` : "";
-        const finePart = s.totalLateFee > 0 ? ` • ค่าปรับ ฿${formatBaht(s.totalLateFee)}` : "";
-        const paidPart = s.rawPaid > 0 ? ` (โอนแล้ว ฿${formatBaht(s.rawPaid)})` : " (ยังไม่โอน)";
-        return `${idx + 1}. 🔴 **${s.member.nickname}**${discordPart}${namePart}: **ค้างชำระ ฿${formatBaht(s.deficit)}**${paidPart}${finePart}`;
+        const labelText = s.totalLateFee > 0 ? "ค้างจ่าย" : "ค้าง";
+        const fineText = s.totalLateFee > 0 ? ` (รวมค่าปรับ +฿${formatBaht(s.totalLateFee)})` : "";
+        const paidText = s.rawPaid > 0 ? ` • โอนแล้ว ฿${formatBaht(s.rawPaid)}` : "";
+        return `${idx + 1}. 🔴 **${s.member.nickname}**${discordPart}${namePart}: **${labelText} ฿${formatBaht(s.deficit)}**${fineText}${paidText}`;
       })
       .join("\n");
   }
@@ -168,7 +172,7 @@ export function buildCheckEmbed(
           ? ` <@${s.member.discordUserId}>`
           : (s.member.discordUsername ? ` (@${s.member.discordUsername})` : "");
         const bonusPart = s.carriedOut > 0 ? ` *(ทบเกิน +฿${formatBaht(s.carriedOut)})*` : "";
-        return `${idx + 1}. 🟢 **${s.member.nickname}**${discordPart}: โอนแล้ว ฿${formatBaht(s.rawPaid)}${bonusPart}`;
+        return `${idx + 1}. 🟢 **${s.member.nickname}**${discordPart}: ครบถ้วน (โอนแล้ว ฿${formatBaht(s.rawPaid)}${bonusPart})`;
       })
       .join("\n");
   }
@@ -199,7 +203,7 @@ export function buildCheckEmbed(
 
   return {
     title,
-    description: `📅 ${periodLabel}: **${targetWeekLabel}**${cycleDetails}\n🎯 เป้าหมายคนละ: **฿${formatBaht(targetPerMember)}**${lateFeePerWeek > 0 ? ` (ค่าปรับจ่ายช้า ฿${formatBaht(lateFeePerWeek)}/สัปดาห์)` : ""}`,
+    description: `📅 ${periodLabel}: **${targetWeekLabel}**${cycleDetails}\n🎯 เป้าหมายคนละ: **฿${formatBaht(targetPerMember)}**${lateFeePerWeek > 0 ? ` (ค่าปรับจ่ายช้า ฿${formatBaht(lateFeePerWeek)}/สัปดาห์)` : ""}\n💰 ยอดเงินรวมกองกลางทั้งหมด: **฿${formatBaht(totalFundBalance)}**`,
     color: embedColor,
     fields: [
       {
@@ -213,9 +217,19 @@ export function buildCheckEmbed(
         inline: false,
       },
       {
-        name: summaryFieldName,
-        value: `ค้างชำระรวม: **฿${formatBaht(totalUnpaidAmount)}** (โอนครบแล้ว ${paidList.length}/${members.length} คน)`,
-        inline: false,
+        name: "💰 ยอดเงินรวมกองกลางทั้งหมด",
+        value: `**฿${formatBaht(totalFundBalance)}**`,
+        inline: true,
+      },
+      {
+        name: "🔴 ยอดค้างชำระรวม",
+        value: `**฿${formatBaht(totalUnpaidAmount)}** (${unpaidList.length} คน${totalLateFeeAmount > 0 ? ` • ค่าปรับ ฿${formatBaht(totalLateFeeAmount)}` : ""})`,
+        inline: true,
+      },
+      {
+        name: "🟢 ยอดโอนเข้าในรอบนี้",
+        value: `**฿${formatBaht(totalPaidThisPeriod)}** / ฿${formatBaht(groupTotalTarget)} (${paidList.length}/${members.length} คน)`,
+        inline: true,
       },
     ],
     footer: {
@@ -326,12 +340,11 @@ export function buildMemberPersonalStatusEmbed(
     member.customLateFee
   );
 
-  const manualFine = Number(member.manualFine || 0);
   const curStatus = calc.currentWeekStatus;
-  const deficit = (curStatus.deficit || 0) + manualFine;
+  const deficit = curStatus.deficit || 0;
   const rawPaid = curStatus.rawPaidThisWeek || 0;
-  const isPaidFully = curStatus.isPaidFully && manualFine === 0 && deficit <= 0;
-  const totalFine = (curStatus.lateFeeThisWeek || 0) + manualFine;
+  const isPaidFully = curStatus.isPaidFully && deficit <= 0;
+  const totalFine = curStatus.lateFeeThisWeek || 0;
   const carriedOut = curStatus.carriedOut || 0;
 
   // Member's all-time transactions

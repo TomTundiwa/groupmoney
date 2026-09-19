@@ -184,8 +184,8 @@ export function createClientOverdueEmbed(
   period: "current" | "previous" = "current"
 ) {
   const isPrevious = period === "previous";
-  const targetPerMember = group.targetAmountPerMember || 0;
-  const lateFeePerWeek = group.lateFeePerWeek || 0;
+  const targetPerMember = Number(group.targetAmountPerMember) || 200;
+  const lateFeePerWeek = Number(group.lateFeePerWeek) || 0;
 
   if (members.length === 0) {
     return {
@@ -208,7 +208,6 @@ export function createClientOverdueEmbed(
       member.customLateFee
     );
 
-    const manualFine = Number(member.manualFine || 0);
     const weeksCount = calc.weeksHistory.length;
 
     let targetWeekData;
@@ -227,11 +226,11 @@ export function createClientOverdueEmbed(
       totalLateFee = targetWeekData.lateFee || 0;
     } else {
       targetWeekData = calc.weeksHistory[weeksCount - 1];
-      deficit = (calc.currentWeekStatus.deficit || 0) + manualFine;
-      isPaidFully = calc.currentWeekStatus.isPaidFully && manualFine === 0 && deficit <= 0;
+      deficit = calc.currentWeekStatus.deficit || 0;
+      isPaidFully = calc.currentWeekStatus.isPaidFully && deficit <= 0;
       rawPaid = calc.currentWeekStatus.rawPaidThisWeek || 0;
       carriedOut = calc.currentWeekStatus.carriedOut || 0;
-      totalLateFee = (calc.currentWeekStatus.lateFeeThisWeek || 0) + manualFine;
+      totalLateFee = calc.currentWeekStatus.lateFeeThisWeek || 0;
     }
 
     return {
@@ -248,6 +247,10 @@ export function createClientOverdueEmbed(
   const unpaidList = memberStatuses.filter((s) => !s.isPaidFully || s.deficit > 0);
   const paidList = memberStatuses.filter((s) => s.isPaidFully && s.deficit <= 0);
   const totalUnpaidAmount = unpaidList.reduce((sum, s) => sum + s.deficit, 0);
+  const totalLateFeeAmount = unpaidList.reduce((sum, s) => sum + s.totalLateFee, 0);
+  const totalPaidThisPeriod = memberStatuses.reduce((sum, s) => sum + (s.rawPaid || 0), 0);
+  const totalFundBalance = (transactions || []).reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+  const groupTotalTarget = targetPerMember * (members.length || 1);
 
   const targetWeekLabel = memberStatuses[0]?.targetWeekData?.label || (isPrevious ? "อาทิตย์ก่อน" : "รอบปัจจุบัน");
   const targetCycleLabel = memberStatuses[0]?.targetWeekData?.cycleLabel;
@@ -264,9 +267,10 @@ export function createClientOverdueEmbed(
           ? ` <@${s.member.discordUserId}>`
           : s.member.discordUsername ? ` (@${s.member.discordUsername})` : "";
         const namePart = s.member.name && s.member.name !== s.member.nickname ? ` (${s.member.name})` : "";
-        const finePart = s.totalLateFee > 0 ? ` • ค่าปรับ ฿${s.totalLateFee.toLocaleString("th-TH")}` : "";
-        const paidPart = s.rawPaid > 0 ? ` (โอนแล้ว ฿${s.rawPaid.toLocaleString("th-TH")})` : " (ยังไม่โอน)";
-        return `${idx + 1}. 🔴 **${s.member.nickname}**${discordTag}${namePart}: **ค้างชำระ ฿${s.deficit.toLocaleString("th-TH")}**${paidPart}${finePart}`;
+        const labelText = s.totalLateFee > 0 ? "ค้างจ่าย" : "ค้าง";
+        const finePart = s.totalLateFee > 0 ? ` (รวมค่าปรับ +฿${s.totalLateFee.toLocaleString("th-TH")})` : "";
+        const paidPart = s.rawPaid > 0 ? ` • โอนแล้ว ฿${s.rawPaid.toLocaleString("th-TH")}` : "";
+        return `${idx + 1}. 🔴 **${s.member.nickname}**${discordTag}${namePart}: **${labelText} ฿${s.deficit.toLocaleString("th-TH")}**${finePart}${paidPart}`;
       })
       .join("\n");
   }
@@ -281,7 +285,7 @@ export function createClientOverdueEmbed(
           ? ` <@${s.member.discordUserId}>`
           : s.member.discordUsername ? ` (@${s.member.discordUsername})` : "";
         const bonusPart = s.carriedOut > 0 ? ` *(ทบเกิน +฿${s.carriedOut.toLocaleString("th-TH")})*` : "";
-        return `${idx + 1}. 🟢 **${s.member.nickname}**${discordTag}: โอนแล้ว ฿${s.rawPaid.toLocaleString("th-TH")}${bonusPart}`;
+        return `${idx + 1}. 🟢 **${s.member.nickname}**${discordTag}: ครบถ้วน (โอนแล้ว ฿${s.rawPaid.toLocaleString("th-TH")}${bonusPart})`;
       })
       .join("\n");
   }
@@ -291,7 +295,7 @@ export function createClientOverdueEmbed(
 
   return {
     title: isPrevious ? `📋 สรุปสถานะการโอนเงิน (อาทิตย์ก่อน): ${group.name}` : `📋 สรุปสถานะการโอนเงิน (รอบปัจจุบัน): ${group.name}`,
-    description: `📅 ${isPrevious ? "รอบอาทิตย์ก่อน" : "รอบสัปดาห์ปัจจุบัน"}: **${targetWeekLabel}**${cycleDetails}\n🎯 เป้าหมายคนละ: **฿${targetPerMember.toLocaleString("th-TH")}**${lateFeePerWeek > 0 ? ` (ค่าปรับจ่ายช้า ฿${lateFeePerWeek.toLocaleString("th-TH")}/สัปดาห์)` : ""}`,
+    description: `📅 ${isPrevious ? "รอบอาทิตย์ก่อน" : "รอบสัปดาห์ปัจจุบัน"}: **${targetWeekLabel}**${cycleDetails}\n🎯 เป้าหมายคนละ: **฿${targetPerMember.toLocaleString("th-TH")}**${lateFeePerWeek > 0 ? ` (ค่าปรับจ่ายช้า ฿${lateFeePerWeek.toLocaleString("th-TH")}/สัปดาห์)` : ""}\n💰 ยอดเงินรวมกองกลางทั้งหมด: **฿${totalFundBalance.toLocaleString("th-TH")}**`,
     color: embedColor,
     fields: [
       {
@@ -305,9 +309,19 @@ export function createClientOverdueEmbed(
         inline: false,
       },
       {
-        name: "📊 สรุปยอดค้างชำระ",
-        value: `🔴 ค้างชำระทั้งหมด: **${unpaidList.length} คน** • ยอดรวมค้าง: **฿${totalUnpaidAmount.toLocaleString("th-TH")}**\n🟢 โอนครบถ้วนแล้ว: **${paidList.length} / ${members.length} คน**`,
-        inline: false,
+        name: "💰 ยอดเงินรวมกองกลางทั้งหมด",
+        value: `**฿${totalFundBalance.toLocaleString("th-TH")}**`,
+        inline: true,
+      },
+      {
+        name: "🔴 ยอดค้างชำระรวม",
+        value: `**฿${totalUnpaidAmount.toLocaleString("th-TH")}** (${unpaidList.length} คน${totalLateFeeAmount > 0 ? ` • ค่าปรับ ฿${totalLateFeeAmount.toLocaleString("th-TH")}` : ""})`,
+        inline: true,
+      },
+      {
+        name: "🟢 ยอดโอนเข้าในรอบนี้",
+        value: `**฿${totalPaidThisPeriod.toLocaleString("th-TH")}** / ฿${groupTotalTarget.toLocaleString("th-TH")} (ครบแล้ว ${paidList.length}/${members.length} คน)`,
+        inline: true,
       },
     ],
     footer: {

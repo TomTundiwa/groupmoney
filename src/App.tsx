@@ -1512,6 +1512,9 @@ export default function App() {
           groupId: activeGroupId,
           command,
           sendToWebhook,
+          group: activeGroup,
+          members: members.filter((m) => m.groupId === activeGroupId),
+          transactions: transactions.filter((t) => t.groupId === activeGroupId),
         }),
       });
       if (ok && data?.success && data.embed) {
@@ -2746,9 +2749,14 @@ export default function App() {
                                 </div>
                               )}
 
-                              <div className="space-y-2 pt-1">
+                              <div className="flex flex-wrap gap-2 pt-1">
                                 {commandPreviewData.fields?.map((f: any, i: number) => (
-                                  <div key={i} className="bg-[#1E1F22]/70 rounded p-2 border border-white/5 space-y-1">
+                                  <div
+                                    key={i}
+                                    className={`bg-[#1E1F22]/70 rounded p-2 border border-white/5 space-y-1 ${
+                                      f.inline ? "flex-1 min-w-[130px]" : "w-full"
+                                    }`}
+                                  >
                                     <div className="font-bold text-slate-300 text-[11px]">{f.name}</div>
                                     <div className="text-slate-200 text-[11px] whitespace-pre-line leading-relaxed font-mono">
                                       {f.value}

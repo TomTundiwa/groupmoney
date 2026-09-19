@@ -760,12 +760,30 @@ app.post("/api/discord/bot/disconnect", (req, res) => {
 // Can be called to test preview in UI or push to Discord webhook directly
 app.post("/api/discord/command", async (req, res) => {
   try {
-    const { groupId, command, sendToWebhook, webhookUrl } = req.body;
+    const {
+      groupId,
+      command,
+      sendToWebhook,
+      webhookUrl,
+      group: clientGroup,
+      members: clientMembers,
+      transactions: clientTransactions,
+    } = req.body;
     if (!groupId || !command) {
       return res.status(400).json({ success: false, error: "Missing groupId or command." });
     }
 
-    const data = await fetchGroupData(groupId);
+    let data: { group: any; members: any[]; transactions: any[] } | null = null;
+    if (clientGroup && clientMembers && Array.isArray(clientMembers) && clientMembers.length > 0) {
+      data = {
+        group: clientGroup,
+        members: clientMembers,
+        transactions: clientTransactions || [],
+      };
+    } else if (groupId) {
+      data = await fetchGroupData(groupId);
+    }
+
     if (!data) {
       return res.status(404).json({ success: false, error: "Group not found." });
     }
@@ -878,14 +896,16 @@ app.post("/api/discord/notify-overdue", async (req, res) => {
       });
     }
 
-    // Try fetching latest data from server Firestore, or fallback to client provided payload
-    let data = groupId ? await fetchGroupData(groupId) : null;
-    if ((!data || !data.group) && clientGroup && clientMembers) {
+    // Use client provided payload if available (matching exact active screen state), or fetch from Firestore
+    let data: { group: any; members: any[]; transactions: any[] } | null = null;
+    if (clientGroup && clientMembers && Array.isArray(clientMembers) && clientMembers.length > 0) {
       data = {
         group: clientGroup,
         members: clientMembers,
         transactions: clientTransactions || [],
       };
+    } else if (groupId) {
+      data = await fetchGroupData(groupId);
     }
 
     if (!data || !data.group) {
