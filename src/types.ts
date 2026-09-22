@@ -20,9 +20,10 @@ export interface Group {
   discordOverdueWebhookEnabled?: boolean;
   discordOverdueMentionText?: string; // เช่น @everyone หรือ @here
   discordOverdueNotifyOnTransfer?: boolean; // แจ้งเตือนอัปเดตยอดค้างทันทีเมื่อมีคนโอนเงินเข้า
-  discordOverdueAutoSchedule?: boolean; // ส่งอัตโนมัติ 06:00, 09:00, 11:30, 12:00, 15:00, 20:00 น.
+  discordOverdueAutoSchedule?: boolean; // ส่งอัตโนมัติตามรอบเวลาที่เลือก
+  discordOverdueScheduleSlots?: string[]; // รายการรอบเวลาทุกๆ ชั่วโมงที่เลือกให้ส่ง เช่น ["08:00", "12:00", "15:00", "18:00"]
   discordLastAutoOverdueBroadcast?: string; // วันที่และเวลาที่ส่งอัตโนมัติล่าสุด (ISO)
-  discordLastAutoOverdueSlot?: string; // รอบเวลาล่าสุดที่ส่ง เช่น 06:00, 09:00, 11:30, 12:00, 15:00, 20:00
+  discordLastAutoOverdueSlot?: string; // รอบเวลาล่าสุดที่ส่ง เช่น 08:00, 12:00
   discordSentSlotsToday?: string[]; // รายการรอบเวลาที่ส่งสำเร็จแล้วในวันนี้ เช่น ["2026-09-22_06:00", "2026-09-22_09:00"]
   lastAutoOverdueSlotKey?: string; // คีย์รอบเวลาล่าสุด เช่น 2026-09-22_11:30
   // Discord Bot integration

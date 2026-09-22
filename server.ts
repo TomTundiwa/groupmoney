@@ -979,7 +979,17 @@ import {
 // Endpoint to check scheduler status
 app.get("/api/discord/scheduler/status", (req, res) => {
   const status = overdueScheduler.getStatus();
-  return res.json({ success: true, ...status });
+  const publicAppUrl = process.env.APP_URL || "";
+  const cronPingUrl = publicAppUrl
+    ? `${publicAppUrl}/api/discord/scheduler/cron-ping`
+    : "/api/discord/scheduler/cron-ping";
+
+  return res.json({
+    success: true,
+    ...status,
+    appUrl: publicAppUrl,
+    cronPingUrl,
+  });
 });
 
 // Endpoint for client heartbeat and external cron pings (supports both GET and POST)

@@ -14,8 +14,23 @@ function isValidDiscordWebhookUrl(url?: string): boolean {
   );
 }
 
-// Scheduled time slots in Bangkok Time (UTC+7)
-// 06:00, 09:00, 11:30, 12:00, 15:00, 20:00
+// All 24 hourly time slots (00:00 to 23:00)
+export const ALL_HOURLY_SLOTS: string[] = Array.from({ length: 24 }, (_, i) => {
+  const h = String(i).padStart(2, "0");
+  return `${h}:00`;
+});
+
+// Default slots if none selected by user
+export const DEFAULT_SCHEDULED_SLOTS: string[] = [
+  "06:00",
+  "09:00",
+  "12:00",
+  "15:00",
+  "18:00",
+  "20:00",
+];
+
+// Scheduled time slots in Bangkok Time (UTC+7) - retained for backward compatibility
 export interface ScheduledTimeSlot {
   hour: number;
   minute: number;
@@ -33,6 +48,26 @@ export const SCHEDULED_BANGKOK_TIME_SLOTS: ScheduledTimeSlot[] = [
 
 export const SCHEDULED_TIME_SLOT_LABELS = SCHEDULED_BANGKOK_TIME_SLOTS.map((s) => s.label);
 export const SCHEDULED_BANGKOK_HOURS = [6, 9, 11, 12, 15, 20];
+
+/**
+ * Parse HH:MM to total minutes
+ */
+export function parseSlotTotalMinutes(slot: string): number {
+  const [hStr, mStr] = (slot || "").split(":");
+  const h = parseInt(hStr, 10) || 0;
+  const m = parseInt(mStr, 10) || 0;
+  return h * 60 + m;
+}
+
+/**
+ * Retrieve configured schedule slots for a group
+ */
+export function getGroupConfiguredSlots(group: Group): string[] {
+  if (Array.isArray(group.discordOverdueScheduleSlots) && group.discordOverdueScheduleSlots.length > 0) {
+    return group.discordOverdueScheduleSlots;
+  }
+  return DEFAULT_SCHEDULED_SLOTS;
+}
 
 /**
  * Get current time details in Asia/Bangkok
@@ -201,7 +236,7 @@ export async function sendOverdueBroadcastForGroup(
     const embed = buildCheckEmbed(data.group, members, transactions, "current");
 
     const timeSlotLabel = targetTimeSlot ? `รอบเวลา ${targetTimeSlot} น.` : "";
-    embed.description = `⏰ **แจ้งเตือนยอดค้างอัตโนมัติประจำวัน ${timeSlotLabel}** (ส่ง 6 รอบ: 06:00, 09:00, 11:30, 12:00, 15:00, 20:00 น.)\n\n${embed.description || ""}`;
+    embed.description = `⏰ **แจ้งเตือนยอดค้างอัตโนมัติประจำวัน ${timeSlotLabel}**\n\n${embed.description || ""}`;
 
     const payload: Record<string, any> = {
       username: `แจ้งเตือนยอดค้าง • ${data.group.name || "ก๊วนออมเงิน"}`,
@@ -284,7 +319,8 @@ export async function executeScheduledOverdueBroadcast(
 
       checkedCount++;
 
-      // Determine which slots to send
+      // Determine which slots to send for this group
+      const groupSlots = getGroupConfiguredSlots(group);
       let slotsToSend: string[] = [];
 
       if (forceTimeSlot) {
@@ -298,16 +334,17 @@ export async function executeScheduledOverdueBroadcast(
           slotsToSend.push(forceTimeSlot);
         }
       } else {
-        // Auto check: find all slots whose time has arrived today and have not been sent yet
-        const reachedSlots = getReachedSlotsToday(bkk);
+        // Auto check: find all configured slots whose time has arrived today and have not been sent yet
+        for (const slotLabel of groupSlots) {
+          const slotMinutes = parseSlotTotalMinutes(slotLabel);
+          if (slotMinutes <= bkk.totalMinutes) {
+            const slotKey = `${bkk.dateKey}_${slotLabel}`;
+            const alreadySent =
+              group.discordSentSlotsToday?.includes(slotKey) || group.lastAutoOverdueSlotKey === slotKey;
 
-        for (const slot of reachedSlots) {
-          const slotKey = `${bkk.dateKey}_${slot.label}`;
-          const alreadySent =
-            group.discordSentSlotsToday?.includes(slotKey) || group.lastAutoOverdueSlotKey === slotKey;
-
-          if (!alreadySent) {
-            slotsToSend.push(slot.label);
+            if (!alreadySent) {
+              slotsToSend.push(slotLabel);
+            }
           }
         }
       }
@@ -357,15 +394,24 @@ class OverdueSchedulerService {
 
     console.log("[AutoOverdue Scheduler] Started background daemon. Target Bangkok slots:", SCHEDULED_TIME_SLOT_LABELS);
 
-    // Initial check after 3 seconds
+    // Initial check after 2 seconds
     setTimeout(() => {
       this.checkTick().catch((err) => console.error("[AutoOverdue] Initial check error:", err));
-    }, 3000);
+    }, 2000);
 
-    // Run check every 20 seconds
+    // Run check every 10 seconds for high precision
     this.intervalId = setInterval(() => {
       this.checkTick().catch((err) => console.error("[AutoOverdue Scheduler] Tick error:", err));
-    }, 20000);
+    }, 10000);
+
+    // Internal self-keepalive loop: ensure server event loop stays active
+    setInterval(() => {
+      fetch("http://localhost:3000/api/discord/scheduler/check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source: "server-internal-pulse" }),
+      }).catch(() => {});
+    }, 25000);
   }
 
   stop() {
@@ -388,15 +434,17 @@ class OverdueSchedulerService {
 
   getStatus() {
     const bkk = getBangkokTimeDetails();
-    const reachedSlots = getReachedSlotsToday(bkk).map((s) => s.label);
+    const reachedSlots = ALL_HOURLY_SLOTS.filter((s) => parseSlotTotalMinutes(s) <= bkk.totalMinutes);
 
     return {
       running: Boolean(this.intervalId),
       bangkokTime: `${bkk.dateKey} ${bkk.timeLabel}`,
       bangkokHour: bkk.hour,
       bangkokMinute: bkk.minute,
+      allHourlySlots: ALL_HOURLY_SLOTS,
+      defaultSlots: DEFAULT_SCHEDULED_SLOTS,
       scheduledHours: SCHEDULED_BANGKOK_HOURS,
-      scheduledSlots: SCHEDULED_TIME_SLOT_LABELS,
+      scheduledSlots: DEFAULT_SCHEDULED_SLOTS,
       reachedSlotsToday: reachedSlots,
     };
   }

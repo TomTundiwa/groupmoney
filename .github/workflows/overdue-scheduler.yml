@@ -1,0 +1,26 @@
+name: ⏰ Discord Overdue 24/7 Scheduler Ping
+
+on:
+  schedule:
+    # Bangkok Time (UTC+7):
+    # 06:00 BKK = 23:00 UTC (previous day)
+    # 09:00 BKK = 02:00 UTC
+    # 11:30 BKK = 04:30 UTC
+    # 12:00 BKK = 05:00 UTC
+    # 15:00 BKK = 08:00 UTC
+    # 20:00 BKK = 13:00 UTC
+    # We also run every 15 minutes to guarantee delivery even if GitHub actions are slightly delayed
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping-overdue-scheduler:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Overdue Broadcast
+        run: |
+          TARGET_URL="${{ secrets.APP_URL || 'https://ais-dev-guwbf7xf6msgnsnyqs2tan-419637651490.asia-southeast1.run.app' }}"
+          echo "Pinging ${TARGET_URL}/api/discord/scheduler/cron-ping ..."
+          curl -s -X POST "${TARGET_URL}/api/discord/scheduler/cron-ping" \
+            -H "Content-Type: application/json" \
+            -d '{"source":"github-actions-cron"}' || true

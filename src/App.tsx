@@ -5,7 +5,7 @@ import WeeklyChart from "./components/WeeklyChart";
 import SlipUploader from "./components/SlipUploader";
 import MemberManager from "./components/MemberManager";
 import TransactionHistory from "./components/TransactionHistory";
-import { HelpCircle, Landmark, Sparkles, ShieldAlert, ShieldCheck, Trash2, Key, Share2, Copy, Check, Settings, Crown, Users, Pencil, AlertTriangle, RotateCcw, Radio, Send, Bell, BellRing, Bot, Terminal, ExternalLink, MessageSquareCode, Eye, Play, Clock } from "lucide-react";
+import { HelpCircle, Landmark, Sparkles, ShieldAlert, ShieldCheck, Trash2, Key, Share2, Copy, Check, Settings, Crown, Users, Pencil, AlertTriangle, RotateCcw, Radio, Send, Bell, BellRing, Bot, Terminal, ExternalLink, MessageSquareCode, Eye, Play, Clock, Zap, X } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { collection, doc, getDoc, setDoc, deleteDoc, updateDoc, onSnapshot, writeBatch, deleteField, addDoc } from "firebase/firestore";
 import { db } from "./lib/firebase";
@@ -19,6 +19,13 @@ import {
   createClientOverdueEmbed,
 } from "./lib/safeApi";
 import { schedulerHeartbeat } from "./lib/schedulerHeartbeat";
+
+const ALL_HOURLY_SLOTS = Array.from({ length: 24 }, (_, i) => {
+  const h = String(i).padStart(2, "0");
+  return `${h}:00`;
+});
+
+const DEFAULT_SCHEDULED_SLOTS = ["06:00", "09:00", "12:00", "15:00", "18:00", "20:00"];
 
 export default function App() {
   const [groups, setGroups] = useState<Group[]>([]);
@@ -98,6 +105,7 @@ export default function App() {
   const [editDiscordOverdueWebhookEnabled, setEditDiscordOverdueWebhookEnabled] = useState(false);
   const [editDiscordOverdueNotifyOnTransfer, setEditDiscordOverdueNotifyOnTransfer] = useState(true);
   const [editDiscordOverdueAutoSchedule, setEditDiscordOverdueAutoSchedule] = useState(true);
+  const [editDiscordOverdueScheduleSlots, setEditDiscordOverdueScheduleSlots] = useState<string[]>(DEFAULT_SCHEDULED_SLOTS);
   const [editDiscordOverdueMentionText, setEditDiscordOverdueMentionText] = useState("");
   const [discordOverdueTesting, setDiscordOverdueTesting] = useState(false);
   const [discordOverdueTestResult, setDiscordOverdueTestResult] = useState<{ success: boolean; message: string } | null>(null);
@@ -120,9 +128,21 @@ export default function App() {
   const [cronChecking, setCronChecking] = useState(false);
   const [cronCheckResult, setCronCheckResult] = useState<string | null>(null);
   const [cronCopied, setCronCopied] = useState(false);
+  const [showCronGuideModal, setShowCronGuideModal] = useState(false);
+  const [serverCronPingUrl, setServerCronPingUrl] = useState<string>("");
 
   useEffect(() => {
     schedulerHeartbeat.start();
+    // Fetch server public cron URL
+    fetch("/api/discord/scheduler/status")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d?.cronPingUrl) {
+          setServerCronPingUrl(d.cronPingUrl);
+        }
+      })
+      .catch(() => {});
+
     return () => {
       schedulerHeartbeat.stop();
     };
@@ -147,7 +167,7 @@ export default function App() {
   };
 
   const handleCopyCronUrl = () => {
-    const url = schedulerHeartbeat.getCronPingUrl();
+    const url = serverCronPingUrl || schedulerHeartbeat.getCronPingUrl();
     navigator.clipboard.writeText(url);
     setCronCopied(true);
     setTimeout(() => setCronCopied(false), 2500);
@@ -1286,6 +1306,7 @@ export default function App() {
           discordOverdueWebhookUrl: editDiscordOverdueWebhookUrl.trim(),
           discordOverdueWebhookEnabled: editDiscordOverdueWebhookEnabled,
           discordOverdueAutoSchedule: editDiscordOverdueAutoSchedule,
+          discordOverdueScheduleSlots: editDiscordOverdueScheduleSlots,
           discordOverdueNotifyOnTransfer: editDiscordOverdueNotifyOnTransfer,
           discordOverdueMentionText: editDiscordOverdueMentionText.trim(),
           discordBotToken: editDiscordBotToken.trim(),
@@ -1694,6 +1715,11 @@ export default function App() {
     setEditDiscordOverdueWebhookUrl(group.discordOverdueWebhookUrl || "");
     setEditDiscordOverdueWebhookEnabled(group.discordOverdueWebhookEnabled ?? false);
     setEditDiscordOverdueAutoSchedule(group.discordOverdueAutoSchedule ?? true);
+    const initialSlots =
+      Array.isArray(group.discordOverdueScheduleSlots) && group.discordOverdueScheduleSlots.length > 0
+        ? group.discordOverdueScheduleSlots
+        : DEFAULT_SCHEDULED_SLOTS;
+    setEditDiscordOverdueScheduleSlots(initialSlots);
     setEditDiscordOverdueNotifyOnTransfer(group.discordOverdueNotifyOnTransfer ?? true);
     setEditDiscordOverdueMentionText(group.discordOverdueMentionText || "");
     setDiscordOverdueTestResult(null);
@@ -2691,20 +2717,21 @@ export default function App() {
                         </div>
 
                         {/* Automated Schedule Info & Status: 06:00, 09:00, 11:30, 12:00, 15:00, 20:00 */}
+                        {/* Automated Schedule Info & Status: Customizable Hourly Slots (00:00 - 23:00) */}
                         <div className="bg-slate-950/80 border border-amber-500/25 rounded-xl p-3.5 space-y-3">
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-1.5">
                               <Clock className="w-4 h-4 text-amber-400" />
                               <div>
                                 <span className="text-xs font-bold text-slate-100">
-                                  แจ้งเตือนอัตโนมัติครบ 6 รอบต่อวัน (ส่งทุกรอบ)
+                                  แจ้งเตือนอัตโนมัติตามชั่วโมงที่เลือก ({editDiscordOverdueScheduleSlots.length} รอบ/วัน)
                                 </span>
                                 <p className="text-[10px] text-slate-400">
-                                  เซิร์ฟเวอร์จะสรุปยอดค้างและยิงเข้า Discord Webhook ครบทุกรอบ
+                                  เลือกชั่วโมงที่ต้องการให้ระบบส่งแจ้งเตือนยอดค้างเข้า Discord Webhook อัตโนมัติ
                                 </p>
                               </div>
                             </div>
-                            <label className="relative inline-flex items-center cursor-pointer">
+                            <label className="relative inline-flex items-center cursor-pointer ml-2 shrink-0">
                               <input
                                 type="checkbox"
                                 checked={editDiscordOverdueAutoSchedule}
@@ -2718,40 +2745,149 @@ export default function App() {
                             </label>
                           </div>
 
-                          {/* Schedule Slots Status Grid */}
-                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 pt-1">
-                            {["06:00", "09:00", "11:30", "12:00", "15:00", "20:00"].map((time) => {
-                              const isSentToday =
-                                activeGroup?.discordSentSlotsToday?.some((k) => k.endsWith(`_${time}`)) ||
-                                activeGroup?.lastAutoOverdueSlotKey?.endsWith(`_${time}`) ||
-                                activeGroup?.discordLastAutoOverdueSlot === time;
+                          {/* Quick Selection Presets */}
+                          <div className="space-y-1.5 pt-1">
+                            <div className="flex items-center justify-between text-[11px]">
+                              <span className="font-semibold text-slate-300 flex items-center gap-1">
+                                <span>⏰ เลือกเวลาส่งรายชั่วโมง (คลิกเพื่อเปิด/ปิด):</span>
+                              </span>
+                              <span className="text-[10px] font-medium text-amber-400">
+                                {editDiscordOverdueScheduleSlots.length === 0
+                                  ? "ยังไม่ได้เลือกเวลา"
+                                  : `เลือกแล้ว ${editDiscordOverdueScheduleSlots.length} เวลา`}
+                              </span>
+                            </div>
 
-                              return (
-                                <div
-                                  key={time}
-                                  className={`p-2 rounded-lg border text-xs flex flex-col justify-between transition ${
-                                    isSentToday
-                                      ? "bg-emerald-950/40 border-emerald-500/40 text-emerald-200"
-                                      : editDiscordOverdueAutoSchedule
-                                      ? "bg-slate-900 border-slate-700/80 text-slate-300"
-                                      : "bg-slate-900/40 border-slate-800 text-slate-500"
-                                  }`}
-                                >
-                                  <div className="flex items-center justify-between">
-                                    <span className="font-mono font-bold text-[12px]">⏰ {time} น.</span>
+                            {/* Preset Buttons */}
+                            <div className="flex flex-wrap items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => setEditDiscordOverdueScheduleSlots([...ALL_HOURLY_SLOTS])}
+                                className="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition cursor-pointer"
+                              >
+                                ทั้งหมด 24 ชม.
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setEditDiscordOverdueScheduleSlots([
+                                    "08:00",
+                                    "09:00",
+                                    "10:00",
+                                    "11:00",
+                                    "12:00",
+                                    "13:00",
+                                    "14:00",
+                                    "15:00",
+                                    "16:00",
+                                    "17:00",
+                                    "18:00",
+                                    "19:00",
+                                    "20:00",
+                                  ])
+                                }
+                                className="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition cursor-pointer"
+                              >
+                                กลางวัน (08:00-20:00)
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setEditDiscordOverdueScheduleSlots([
+                                    "09:00",
+                                    "10:00",
+                                    "11:00",
+                                    "12:00",
+                                    "13:00",
+                                    "14:00",
+                                    "15:00",
+                                    "16:00",
+                                    "17:00",
+                                    "18:00",
+                                  ])
+                                }
+                                className="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition cursor-pointer"
+                              >
+                                เวลางาน (09:00-18:00)
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setEditDiscordOverdueScheduleSlots([...DEFAULT_SCHEDULED_SLOTS])}
+                                className="px-2 py-0.5 rounded text-[10px] font-medium bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 transition cursor-pointer"
+                              >
+                                มาตรฐาน (6 รอบ)
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setEditDiscordOverdueScheduleSlots([])}
+                                className="px-2 py-0.5 rounded text-[10px] font-medium bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 transition cursor-pointer"
+                              >
+                                ล้างทั้งหมด
+                              </button>
+                            </div>
+
+                            {/* 24-Hour Interactive Grid */}
+                            <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-1 pt-1.5 max-h-56 overflow-y-auto pr-0.5">
+                              {ALL_HOURLY_SLOTS.map((time) => {
+                                const isSelected = editDiscordOverdueScheduleSlots.includes(time);
+                                const isSentToday =
+                                  activeGroup?.discordSentSlotsToday?.some((k) => k.endsWith(`_${time}`)) ||
+                                  activeGroup?.lastAutoOverdueSlotKey?.endsWith(`_${time}`) ||
+                                  activeGroup?.discordLastAutoOverdueSlot === time;
+
+                                return (
+                                  <button
+                                    key={time}
+                                    type="button"
+                                    onClick={() => {
+                                      setEditDiscordOverdueScheduleSlots((prev) =>
+                                        prev.includes(time)
+                                          ? prev.filter((s) => s !== time)
+                                          : [...prev, time].sort()
+                                      );
+                                    }}
+                                    className={`p-1.5 rounded-lg border text-xs flex flex-col items-center justify-center gap-0.5 transition cursor-pointer select-none ${
+                                      isSelected
+                                        ? "bg-amber-500/20 border-amber-500/60 text-amber-200 shadow-sm ring-1 ring-amber-500/30"
+                                        : "bg-slate-900/50 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200"
+                                    }`}
+                                  >
+                                    <div className="flex items-center gap-1">
+                                      <span className="font-mono font-bold text-[11px]">{time}</span>
+                                    </div>
                                     {isSentToday ? (
-                                      <span className="text-[10px] font-semibold px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 flex items-center gap-0.5">
-                                        <Check className="w-2.5 h-2.5" /> ส่งแล้ว
+                                      <span className="text-[9px] font-semibold px-1 rounded bg-emerald-500/20 text-emerald-300 flex items-center gap-0.5">
+                                        <Check className="w-2 h-2" /> ส่งแล้ว
                                       </span>
                                     ) : (
-                                      <span className="text-[10px] text-slate-400 font-medium">
-                                        {editDiscordOverdueAutoSchedule ? "ตามรอบ" : "ปิด"}
+                                      <span
+                                        className={`text-[9px] font-medium ${
+                                          isSelected ? "text-amber-400/90" : "text-slate-500"
+                                        }`}
+                                      >
+                                        {isSelected ? "เลือกไว้" : "ปิด"}
                                       </span>
                                     )}
-                                  </div>
-                                </div>
-                              );
-                            })}
+                                  </button>
+                                );
+                              })}
+                            </div>
+
+                            {/* Selected summary */}
+                            <div className="text-[11px] text-slate-400 bg-slate-900/70 p-2 rounded-lg border border-slate-800 flex flex-wrap items-center justify-between gap-1">
+                              <span>
+                                📌 รอบเวลาที่เลือก:{" "}
+                                {editDiscordOverdueScheduleSlots.length > 0 ? (
+                                  <strong className="text-amber-300 font-mono">
+                                    {editDiscordOverdueScheduleSlots.join(", ")} น.
+                                  </strong>
+                                ) : (
+                                  <span className="text-rose-400 font-semibold">
+                                    (ไม่ได้เลือกเวลา ระบบจะไม่ส่งอัตโนมัติ)
+                                  </span>
+                                )}
+                              </span>
+                            </div>
                           </div>
 
                           {/* Quick Trigger Check Button & Cron URL */}
@@ -2777,7 +2913,17 @@ export default function App() {
                               title="คัดลอกลิงก์ Webhook / Cron Ping เพื่อให้ระบบยิงตรงเวลา 100% แม้ปิดเบราว์เซอร์"
                             >
                               <Copy className="w-3.5 h-3.5 text-slate-400" />
-                              <span>{cronCopied ? "✓ คัดลอก Cron URL แล้ว!" : "📋 คัดลอก Cron Ping URL (24 ชม.)"}</span>
+                              <span>{cronCopied ? "✓ คัดลอกแล้ว!" : "📋 คัดลอก Cron URL"}</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => setShowCronGuideModal(true)}
+                              className="px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/40 cursor-pointer transition active:scale-98"
+                              title="ดูวิธีตั้งค่าให้ระบบส่งอัตโนมัติตลอด 24 ชม. ฟรี แม้ไม่มีคนเปิดเว็บ"
+                            >
+                              <Zap className="w-3.5 h-3.5 text-indigo-400" />
+                              <span>🌐 วิธีเปิดส่งตลอด 24 ชม. (ฟรี)</span>
                             </button>
 
                             {cronCheckResult && (
@@ -2788,13 +2934,13 @@ export default function App() {
                           </div>
 
                           <div className="p-2.5 rounded-lg bg-slate-900/60 border border-slate-800 text-[10px] text-slate-400 space-y-1">
-                            <p className="font-semibold text-slate-300">💡 การันตีส่งครบ 6 รอบทุกวัน ไม่หลุดรอบ:</p>
+                            <p className="font-semibold text-slate-300">💡 การันตีส่งตรงตามรอบเวลาที่เลือก ไม่หลุดรอบ:</p>
                             <ul className="list-disc list-inside space-y-0.5 text-slate-400">
                               <li>
-                                <strong className="text-slate-300">ขณะเปิดหน้าเว็บนี้ไว้:</strong> ระบบมี Heartbeat ตรวจสอบและยิงส่งเข้า Discord อัตโนมัติทุกรอบ
+                                <strong className="text-slate-300">ขณะเปิดหน้าเว็บนี้ไว้:</strong> ระบบมี Heartbeat ตรวจสอบและยิงส่งเข้า Discord อัตโนมัติทุกชั่วโมงที่เลือกไว้
                               </li>
                               <li>
-                                <strong className="text-slate-300">ขณะปิดหน้าเว็บ / ทำงาน 24 ชม.:</strong> แนะนำนำ <span className="text-amber-300">Cron Ping URL</span> ไปตั้งในเว็บฟรี เช่น <span className="text-amber-300 font-mono">cron-job.org</span> ให้ยิงกระตุ้นทุก 10-15 นาที เซิร์ฟเวอร์จะตื่นมาส่งครบ 6 รอบทุกวันแน่นอน 100%
+                                <strong className="text-slate-300">ขณะปิดหน้าเว็บ / ทำงาน 24 ชม.:</strong> แนะนำนำ <span className="text-amber-300">Cron Ping URL</span> ไปตั้งในเว็บฟรี เช่น <span className="text-amber-300 font-mono">cron-job.org</span> ให้ยิงกระตุ้นทุก 10-15 นาที เซิร์ฟเวอร์จะตื่นมาส่งตรงตามรอบเวลาที่คุณเลือกไว้แน่นอน 100%
                               </li>
                             </ul>
                           </div>
@@ -3220,6 +3366,149 @@ export default function App() {
                     </div>
                   </div>
                 )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Modal: Guide for 24/7 background scheduler */}
+        {showCronGuideModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-slate-900 border border-slate-700/80 rounded-2xl max-w-xl w-full p-5 max-h-[90vh] overflow-y-auto shadow-2xl text-slate-200 space-y-4"
+            >
+              {/* Modal Header */}
+              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                <div className="flex items-center gap-2 text-amber-400">
+                  <Clock className="w-5 h-5" />
+                  <h3 className="font-bold text-base text-slate-100">
+                    วิธีตั้งค่าให้ส่ง Discord ยอดค้าง 24 ชม. (แม้ไม่มีคนเปิดเว็บ)
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowCronGuideModal(false)}
+                  className="p-1 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800 transition cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Explanation Card */}
+              <div className="bg-slate-950/80 border border-slate-800 rounded-xl p-3.5 space-y-2 text-xs text-slate-300">
+                <div className="flex items-center gap-2 text-amber-300 font-bold">
+                  <Sparkles className="w-4 h-4" />
+                  <span>ทำไมเซิร์ฟเวอร์ถึงหลับเมื่อไม่มีคนเข้าเว็บ?</span>
+                </div>
+                <p className="text-slate-400 leading-relaxed">
+                  บริการคลาวด์/Serverless จะพักการทำงาน (Sleep) เมื่อไม่มีคนเปิดหน้าเว็บเพื่อประหยัดทรัพยากร และจะตื่นทันทีเมื่อมีผู้ใช้งานเข้าเว็บหรือมีสัญญาณ Ping จากภายนอก
+                </p>
+                <p className="text-emerald-300 font-medium">
+                  ✨ เพื่อให้ Discord ส่งยอดค้างอัตโนมัติตรงตามรอบเวลาที่คุณเลือกไว้ตลอด 24 ชม. แม้ไม่มีใครเปิดเว็บ สามารถตั้งค่าได้ฟรี 100% ตามวิธีด้านล่างครับ:
+                </p>
+              </div>
+
+              {/* Method 1: Web-Cron (Best & Free) */}
+              <div className="bg-slate-950/60 border border-indigo-500/30 rounded-xl p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-indigo-300 font-bold text-sm">
+                    <span className="w-5 h-5 rounded-full bg-indigo-500/20 text-indigo-300 text-xs flex items-center justify-center font-bold">1</span>
+                    <span>วิธีที่ 1 (แนะนำที่สุด): ใช้บริการ Web-Cron ฟรี (ใช้เวลา 1 นาที)</span>
+                  </div>
+                  <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 font-bold">
+                    ฟรี 100%
+                  </span>
+                </div>
+
+                <p className="text-xs text-slate-300">
+                  นำ <strong>Cron Ping URL</strong> ด้านล่างนี้ ไปตั้งเวลาในเว็บตั้งเวลาฟรี เช่น <strong>cron-job.org</strong> หรือ <strong>uptimerobot.com</strong> ให้ยิงมาปลุกเซิร์ฟเวอร์ทุก 10-15 นาที:
+                </p>
+
+                {/* Copy Box */}
+                <div className="bg-slate-900 border border-slate-700/80 rounded-lg p-2.5 flex items-center justify-between gap-2">
+                  <div className="overflow-hidden">
+                    <span className="text-[10px] text-slate-400 block font-semibold">Cron Ping URL:</span>
+                    <p className="font-mono text-xs text-amber-300 truncate select-all">
+                      {serverCronPingUrl || schedulerHeartbeat.getCronPingUrl()}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleCopyCronUrl}
+                    className="shrink-0 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center gap-1 transition cursor-pointer shadow"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>{cronCopied ? "คัดลอกแล้ว!" : "คัดลอก"}</span>
+                  </button>
+                </div>
+
+                {/* Steps */}
+                <div className="space-y-2 text-xs text-slate-300 pt-1">
+                  <div className="flex items-start gap-2">
+                    <span className="text-indigo-400 font-bold">สเต็ป 1:</span>
+                    <span>
+                      เข้าเว็บ <a href="https://cron-job.org" target="_blank" rel="noreferrer" className="text-indigo-400 hover:underline font-bold inline-flex items-center gap-0.5">cron-job.org <ExternalLink className="w-3 h-3" /></a> หรือ <a href="https://uptimerobot.com" target="_blank" rel="noreferrer" className="text-indigo-400 hover:underline font-bold inline-flex items-center gap-0.5">uptimerobot.com <ExternalLink className="w-3 h-3" /></a> (สมัครฟรี 30 วินาที)
+                    </span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="text-indigo-400 font-bold">สเต็ป 2:</span>
+                    <span>กด <strong>Create Cronjob</strong> นำ Cron Ping URL ด้านบนไปวางในช่อง URL</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="text-indigo-400 font-bold">สเต็ป 3:</span>
+                    <span>ตั้งเวลาความถี่เป็น <strong>"Every 10 minutes"</strong> หรือ <strong>"Every 15 minutes"</strong> แล้วกด Save</span>
+                  </div>
+                </div>
+
+                <div className="p-2.5 rounded-lg bg-emerald-950/30 border border-emerald-500/25 text-[11px] text-emerald-300">
+                  ✓ เท่านี้ระบบภายนอกจะยิงปลุกเซิร์ฟเวอร์ให้ทุกวันตลอด 24 ชม. ส่งการ์ดยอดค้างเข้า Discord ครบทุกรอบเวลาตรงเป๊ะ แม้ไม่มีใครเปิดหน้าเว็บเลยครับ!
+                </div>
+              </div>
+
+              {/* Method 2: GitHub Actions (Already built into project) */}
+              <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-4 space-y-2 text-xs text-slate-300">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 font-bold text-slate-200 text-sm">
+                    <span className="w-5 h-5 rounded-full bg-slate-800 text-slate-300 text-xs flex items-center justify-center font-bold">2</span>
+                    <span>วิธีที่ 2: GitHub Actions (มีไฟล์ในระบบแล้ว)</span>
+                  </div>
+                  <span className="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-semibold">
+                    อัตโนมัติ
+                  </span>
+                </div>
+                <p className="text-slate-400 leading-relaxed">
+                  ในโปรเจกต์นี้มีไฟล์ <code className="text-amber-300 bg-slate-900 px-1 py-0.5 rounded">.github/workflows/overdue-scheduler.yml</code> สร้างไว้เรียบร้อยแล้ว หากคุณ Export หรือเชื่อมต่อโปรเจกต์กับ GitHub บอทของ GitHub จะรันให้ฟรีทุก 15 นาทีตลอด 24 ชม. โดยอัตโนมัติ
+                </p>
+              </div>
+
+              {/* Method 3: Discord Bot Token */}
+              <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-4 space-y-2 text-xs text-slate-300">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 font-bold text-slate-200 text-sm">
+                    <span className="w-5 h-5 rounded-full bg-slate-800 text-slate-300 text-xs flex items-center justify-center font-bold">3</span>
+                    <span>วิธีที่ 3: เปิดใช้งาน Discord Bot</span>
+                  </div>
+                  <span className="text-[10px] px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-semibold">
+                    ออปชันเสริม
+                  </span>
+                </div>
+                <p className="text-slate-400 leading-relaxed">
+                  หากใส่ Bot Token ในเมนู <strong>"Discord Bot คำสั่งแชท"</strong> บอทจะเชื่อมต่อ WebSocket ค้างไว้กับ Discord ตลอดเวลา ทำให้เซิร์ฟเวอร์มีทราฟฟิกและตื่นอยู่ตลอด
+                </p>
+              </div>
+
+              {/* Close Button */}
+              <div className="flex justify-end pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowCronGuideModal(false)}
+                  className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition cursor-pointer shadow"
+                >
+                  เข้าใจแล้ว ปิดหน้าต่าง
+                </button>
               </div>
             </motion.div>
           </div>
