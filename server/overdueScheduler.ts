@@ -1,6 +1,6 @@
 import { db } from "../src/lib/firebase";
 import { collection, getDocs, doc, updateDoc } from "firebase/firestore";
-import { Group, Member, Transaction } from "../src/types";
+import { Group } from "../src/types";
 import { buildCheckEmbed, fetchGroupData } from "./discordBotService";
 
 // Helper to validate Discord Webhook URL
@@ -14,9 +14,25 @@ function isValidDiscordWebhookUrl(url?: string): boolean {
   );
 }
 
-// Scheduled hours in Bangkok Time (UTC+7)
-// 6:00, 12:00, 15:00, 20:00
-export const SCHEDULED_BANGKOK_HOURS = [6, 12, 15, 20];
+// Scheduled time slots in Bangkok Time (UTC+7)
+// 06:00, 09:00, 11:30, 12:00, 15:00, 20:00
+export interface ScheduledTimeSlot {
+  hour: number;
+  minute: number;
+  label: string;
+}
+
+export const SCHEDULED_BANGKOK_TIME_SLOTS: ScheduledTimeSlot[] = [
+  { hour: 6, minute: 0, label: "06:00" },
+  { hour: 9, minute: 0, label: "09:00" },
+  { hour: 11, minute: 30, label: "11:30" },
+  { hour: 12, minute: 0, label: "12:00" },
+  { hour: 15, minute: 0, label: "15:00" },
+  { hour: 20, minute: 0, label: "20:00" },
+];
+
+export const SCHEDULED_TIME_SLOT_LABELS = SCHEDULED_BANGKOK_TIME_SLOTS.map((s) => s.label);
+export const SCHEDULED_BANGKOK_HOURS = [6, 9, 11, 12, 15, 20];
 
 /**
  * Get current time details in Asia/Bangkok
@@ -29,6 +45,7 @@ export function getBangkokTimeDetails(): {
   minute: number;
   dateKey: string;
   timeLabel: string;
+  totalMinutes: number;
 } {
   const now = new Date();
   const bkkFormatter = new Intl.DateTimeFormat("en-US", {
@@ -63,7 +80,103 @@ export function getBangkokTimeDetails(): {
     minute,
     dateKey: `${year}-${monthStr}-${dayStr}`,
     timeLabel: `${hourStr}:${minStr}`,
+    totalMinutes: hour * 60 + minute,
   };
+}
+
+/**
+ * Get closest or current slot label based on current Bangkok time
+ */
+export function getClosestOrCurrentSlotLabel(bkk = getBangkokTimeDetails()): string {
+  const currentTotalMinutes = bkk.totalMinutes;
+  let closestSlot = SCHEDULED_BANGKOK_TIME_SLOTS[0];
+  let minDiff = Infinity;
+
+  for (const slot of SCHEDULED_BANGKOK_TIME_SLOTS) {
+    const slotMinutes = slot.hour * 60 + slot.minute;
+    const diff = Math.abs(currentTotalMinutes - slotMinutes);
+    if (diff < minDiff) {
+      minDiff = diff;
+      closestSlot = slot;
+    }
+  }
+
+  return closestSlot.label;
+}
+
+/**
+ * Find all scheduled slots whose start time has arrived today up to this minute
+ */
+export function getReachedSlotsToday(bkk = getBangkokTimeDetails()): ScheduledTimeSlot[] {
+  const currentTotal = bkk.totalMinutes;
+  return SCHEDULED_BANGKOK_TIME_SLOTS.filter((s) => s.hour * 60 + s.minute <= currentTotal);
+}
+
+/**
+ * Send payload to Discord with automatic retry, timeout, and 429 rate limit backoff
+ */
+async function sendToDiscordWithRetry(
+  url: string,
+  payload: any,
+  maxRetries = 3
+): Promise<{ ok: boolean; status: number; text: string }> {
+  let attempt = 0;
+  let lastError = "";
+  let lastStatus = 0;
+
+  while (attempt < maxRetries) {
+    attempt++;
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
+
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      const text = await res.text();
+      lastStatus = res.status;
+
+      if (res.ok) {
+        return { ok: true, status: res.status, text };
+      }
+
+      // Handle Discord 429 Rate Limit
+      if (res.status === 429) {
+        let retryAfterMs = 2500;
+        try {
+          const parsed = JSON.parse(text);
+          if (parsed.retry_after) {
+            retryAfterMs = Math.ceil(Number(parsed.retry_after) * 1000) + 300;
+          }
+        } catch (_) {}
+        console.warn(`[AutoOverdue] Discord 429 rate limited. Sleeping ${retryAfterMs}ms before attempt ${attempt + 1}/${maxRetries}...`);
+        await new Promise((r) => setTimeout(r, retryAfterMs));
+        continue;
+      }
+
+      // 5xx Server errors
+      if (res.status >= 500 && attempt < maxRetries) {
+        console.warn(`[AutoOverdue] Discord 5xx (${res.status}). Waiting 2s before retry ${attempt + 1}/${maxRetries}...`);
+        await new Promise((r) => setTimeout(r, 2000));
+        continue;
+      }
+
+      return { ok: false, status: res.status, text };
+    } catch (err: any) {
+      lastError = err.message || String(err);
+      console.warn(`[AutoOverdue] Discord fetch error (attempt ${attempt}/${maxRetries}):`, lastError);
+      if (attempt < maxRetries) {
+        await new Promise((r) => setTimeout(r, 1500 * attempt));
+      }
+    }
+  }
+
+  return { ok: false, status: lastStatus || 500, text: lastError || "Network timeout or connection error" };
 }
 
 /**
@@ -87,9 +200,8 @@ export async function sendOverdueBroadcastForGroup(
     const { members, transactions } = data;
     const embed = buildCheckEmbed(data.group, members, transactions, "current");
 
-    // Check if anyone owes
     const timeSlotLabel = targetTimeSlot ? `รอบเวลา ${targetTimeSlot} น.` : "";
-    embed.description = `⏰ **แจ้งเตือนยอดค้างอัตโนมัติประจำวัน ${timeSlotLabel}** (เวลา 06:00, 12:00, 15:00, 20:00 น.)\n\n${embed.description || ""}`;
+    embed.description = `⏰ **แจ้งเตือนยอดค้างอัตโนมัติประจำวัน ${timeSlotLabel}** (ส่ง 6 รอบ: 06:00, 09:00, 11:30, 12:00, 15:00, 20:00 น.)\n\n${embed.description || ""}`;
 
     const payload: Record<string, any> = {
       username: `แจ้งเตือนยอดค้าง • ${data.group.name || "ก๊วนออมเงิน"}`,
@@ -101,26 +213,32 @@ export async function sendOverdueBroadcastForGroup(
       payload.content = data.group.discordOverdueMentionText.trim();
     }
 
-    const res = await fetch(group.discordOverdueWebhookUrl.trim(), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
+    const discordResult = await sendToDiscordWithRetry(group.discordOverdueWebhookUrl.trim(), payload, 3);
 
-    if (!res.ok) {
-      const errText = await res.text();
-      return { success: false, error: `Discord HTTP ${res.status}: ${errText}` };
+    if (!discordResult.ok) {
+      return { success: false, error: `Discord HTTP ${discordResult.status}: ${discordResult.text}` };
     }
 
-    // Update last broadcast timestamp on group doc in Firestore
+    // Update sent slot tracking in Firestore
+    const bkk = getBangkokTimeDetails();
+    const effectiveSlot = targetTimeSlot || getClosestOrCurrentSlotLabel(bkk);
+    const slotKey = `${bkk.dateKey}_${effectiveSlot}`;
+
     try {
-      const nowIso = new Date().toISOString();
+      const existingSent: string[] = Array.isArray(group.discordSentSlotsToday) ? [...group.discordSentSlotsToday] : [];
+      const todaySent = existingSent.filter((k) => k.startsWith(bkk.dateKey));
+      if (!todaySent.includes(slotKey)) {
+        todaySent.push(slotKey);
+      }
+
       await updateDoc(doc(db, "groups", group.id), {
-        discordLastAutoOverdueBroadcast: nowIso,
-        discordLastAutoOverdueSlot: targetTimeSlot || `${getBangkokTimeDetails().hour}:00`,
+        discordLastAutoOverdueBroadcast: new Date().toISOString(),
+        discordLastAutoOverdueSlot: effectiveSlot,
+        lastAutoOverdueSlotKey: slotKey,
+        discordSentSlotsToday: todaySent,
       });
     } catch (updateErr) {
-      console.warn(`[AutoOverdue] Failed to update timestamp for ${group.id}:`, updateErr);
+      console.warn(`[AutoOverdue] Failed to update sent status for group ${group.id}:`, updateErr);
     }
 
     return { success: true };
@@ -131,84 +249,123 @@ export async function sendOverdueBroadcastForGroup(
 }
 
 /**
- * Check and execute scheduled overdue broadcasts for all enabled groups
+ * Check and execute scheduled overdue broadcasts for all enabled groups.
+ * Guarantees that EVERY slot (06:00, 09:00, 11:30, 12:00, 15:00, 20:00) that has arrived today
+ * and has not been sent yet will be dispatched.
  */
 export async function executeScheduledOverdueBroadcast(
-  forceTimeSlot?: string
-): Promise<{ checked: number; sent: number; timeSlot: string }> {
+  forceTimeSlot?: string,
+  bypassDedup: boolean = false
+): Promise<{ checked: number; sent: number; timeSlot: string; details: any[] }> {
   const bkk = getBangkokTimeDetails();
-  const timeSlot = forceTimeSlot || `${String(bkk.hour).padStart(2, "0")}:00`;
-  const slotKey = `${bkk.dateKey}_${timeSlot}`;
+  const timeSlot = forceTimeSlot || getClosestOrCurrentSlotLabel(bkk);
 
-  console.log(`[AutoOverdue] Running check for Bangkok time: ${bkk.timeLabel} (Slot: ${timeSlot})`);
+  console.log(`[AutoOverdue] Running check for Bangkok time: ${bkk.timeLabel} (${bkk.dateKey})`);
 
   let checkedCount = 0;
   let sentCount = 0;
+  const details: any[] = [];
 
   try {
     const snap = await getDocs(collection(db, "groups"));
+
     for (const d of snap.docs) {
       const group = { id: d.id, ...d.data() } as Group;
-      // Group must have webhook URL and (enabled === true or not explicitly disabled if URL is present)
       const isWebhookConfigured = Boolean(group.discordOverdueWebhookUrl?.trim());
       const isEnabled = group.discordOverdueWebhookEnabled ?? isWebhookConfigured;
-      // If user toggled auto schedule off explicitly, skip (default true)
       const isAutoScheduleEnabled = group.discordOverdueAutoSchedule ?? true;
 
-      if (!isWebhookConfigured || !isEnabled || !isAutoScheduleEnabled) {
+      if (!isWebhookConfigured || !isEnabled) {
+        continue;
+      }
+      if (!bypassDedup && !isAutoScheduleEnabled) {
         continue;
       }
 
       checkedCount++;
 
-      // Check if this group has already been sent for this exact date and hour slot
-      if (!forceTimeSlot && (group as any).lastAutoOverdueSlotKey === slotKey) {
-        continue;
+      // Determine which slots to send
+      let slotsToSend: string[] = [];
+
+      if (forceTimeSlot) {
+        // Specific manual slot requested
+        const targetKey = `${bkk.dateKey}_${forceTimeSlot}`;
+        const hasAlreadySent =
+          !bypassDedup &&
+          (group.discordSentSlotsToday?.includes(targetKey) || group.lastAutoOverdueSlotKey === targetKey);
+
+        if (!hasAlreadySent) {
+          slotsToSend.push(forceTimeSlot);
+        }
+      } else {
+        // Auto check: find all slots whose time has arrived today and have not been sent yet
+        const reachedSlots = getReachedSlotsToday(bkk);
+
+        for (const slot of reachedSlots) {
+          const slotKey = `${bkk.dateKey}_${slot.label}`;
+          const alreadySent =
+            group.discordSentSlotsToday?.includes(slotKey) || group.lastAutoOverdueSlotKey === slotKey;
+
+          if (!alreadySent) {
+            slotsToSend.push(slot.label);
+          }
+        }
       }
 
-      const result = await sendOverdueBroadcastForGroup(group, "scheduled", timeSlot);
-      if (result.success) {
-        sentCount++;
-        // Record slot key in group doc to avoid duplicate sends across server restarts
-        try {
-          await updateDoc(doc(db, "groups", group.id), {
-            lastAutoOverdueSlotKey: slotKey,
-          });
-        } catch (e) {}
+      // Execute dispatch for each slot needing to be sent
+      for (let i = 0; i < slotsToSend.length; i++) {
+        const slotLabel = slotsToSend[i];
+        console.log(`[AutoOverdue] 🚀 Dispatching overdue notification for group "${group.name || group.id}" (Slot ${slotLabel})...`);
+
+        const result = await sendOverdueBroadcastForGroup(group, "scheduled", slotLabel);
+
+        details.push({
+          groupId: group.id,
+          groupName: group.name,
+          slot: slotLabel,
+          success: result.success,
+          error: result.error,
+        });
+
+        if (result.success) {
+          sentCount++;
+        }
+
+        // Space out multiple dispatches to prevent Discord rate-limiting
+        if (i < slotsToSend.length - 1) {
+          await new Promise((r) => setTimeout(r, 2500));
+        }
       }
     }
   } catch (err) {
     console.error("[AutoOverdue] Error scanning groups:", err);
   }
 
-  console.log(`[AutoOverdue] Completed run for slot ${timeSlot}: Checked ${checkedCount}, Sent ${sentCount}`);
-  return { checked: checkedCount, sent: sentCount, timeSlot };
+  console.log(`[AutoOverdue] Completed check: Checked ${checkedCount} groups, Sent ${sentCount} notifications`);
+  return { checked: checkedCount, sent: sentCount, timeSlot, details };
 }
 
 /**
- * Service to manage background periodic scheduler (every 30 seconds check)
+ * Service to manage background periodic scheduler (every 20 seconds)
  */
 class OverdueSchedulerService {
   private intervalId: NodeJS.Timeout | null = null;
-  private handledSlotsThisDay: Set<string> = new Set();
-  private lastCheckedDateKey: string = "";
+  private isChecking = false;
 
   start() {
     if (this.intervalId) return;
 
-    console.log("[AutoOverdue Scheduler] Started background daemon. Target Bangkok hours:", SCHEDULED_BANGKOK_HOURS);
+    console.log("[AutoOverdue Scheduler] Started background daemon. Target Bangkok slots:", SCHEDULED_TIME_SLOT_LABELS);
 
-    // Run check every 30 seconds
-    this.intervalId = setInterval(() => {
-      this.checkTick().catch((err) => {
-        console.error("[AutoOverdue Scheduler] Tick error:", err);
-      });
-    }, 30000);
-
-    // Initial check after 5 seconds
+    // Initial check after 3 seconds
     setTimeout(() => {
-      this.checkTick().catch(() => {});
-    }, 5000);
+      this.checkTick().catch((err) => console.error("[AutoOverdue] Initial check error:", err));
+    }, 3000);
+
+    // Run check every 20 seconds
+    this.intervalId = setInterval(() => {
+      this.checkTick().catch((err) => console.error("[AutoOverdue Scheduler] Tick error:", err));
+    }, 20000);
   }
 
   stop() {
@@ -218,39 +375,29 @@ class OverdueSchedulerService {
     }
   }
 
-  private async checkTick() {
-    const bkk = getBangkokTimeDetails();
+  async checkTick(): Promise<{ checked: number; sent: number; timeSlot: string; details: any[] } | null> {
+    if (this.isChecking) return null;
+    this.isChecking = true;
 
-    // Reset handled set if new day
-    if (this.lastCheckedDateKey !== bkk.dateKey) {
-      this.lastCheckedDateKey = bkk.dateKey;
-      this.handledSlotsThisDay.clear();
-    }
-
-    // Check if current Bangkok hour matches one of scheduled hours: 6, 12, 15, 20
-    if (SCHEDULED_BANGKOK_HOURS.includes(bkk.hour)) {
-      const slotHourStr = `${String(bkk.hour).padStart(2, "0")}:00`;
-      const slotKey = `${bkk.dateKey}_${slotHourStr}`;
-
-      // Only trigger if not already handled this slot on this day
-      // and within the first 15 minutes of the hour (e.g. 06:00 - 06:15)
-      if (!this.handledSlotsThisDay.has(slotKey) && bkk.minute < 15) {
-        this.handledSlotsThisDay.add(slotKey);
-        console.log(`[AutoOverdue Scheduler] 🔔 Triggering automatic broadcast for slot ${slotHourStr} (Bangkok: ${bkk.timeLabel})`);
-        await executeScheduledOverdueBroadcast(slotHourStr);
-      }
+    try {
+      return await executeScheduledOverdueBroadcast();
+    } finally {
+      this.isChecking = false;
     }
   }
 
   getStatus() {
     const bkk = getBangkokTimeDetails();
+    const reachedSlots = getReachedSlotsToday(bkk).map((s) => s.label);
+
     return {
       running: Boolean(this.intervalId),
       bangkokTime: `${bkk.dateKey} ${bkk.timeLabel}`,
       bangkokHour: bkk.hour,
       bangkokMinute: bkk.minute,
       scheduledHours: SCHEDULED_BANGKOK_HOURS,
-      handledSlotsToday: Array.from(this.handledSlotsThisDay),
+      scheduledSlots: SCHEDULED_TIME_SLOT_LABELS,
+      reachedSlotsToday: reachedSlots,
     };
   }
 }

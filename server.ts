@@ -879,6 +879,7 @@ app.post("/api/discord/notify-overdue", async (req, res) => {
       webhookUrl,
       groupId,
       period = "current",
+      customTitle,
       mentionText,
       customNote,
       group: clientGroup,
@@ -918,6 +919,10 @@ app.post("/api/discord/notify-overdue", async (req, res) => {
       data.transactions,
       period === "previous" ? "previous" : "current"
     );
+
+    if (customTitle && typeof customTitle === "string" && customTitle.trim()) {
+      embed.title = customTitle.trim();
+    }
 
     if (customNote && typeof customNote === "string" && customNote.trim()) {
       embed.description = `📢 **${customNote.trim()}**\n\n${embed.description || ""}`;
@@ -967,6 +972,8 @@ import {
   executeScheduledOverdueBroadcast,
   sendOverdueBroadcastForGroup,
   SCHEDULED_BANGKOK_HOURS,
+  SCHEDULED_TIME_SLOT_LABELS,
+  SCHEDULED_BANGKOK_TIME_SLOTS,
 } from "./server/overdueScheduler";
 
 // Endpoint to check scheduler status
@@ -975,14 +982,34 @@ app.get("/api/discord/scheduler/status", (req, res) => {
   return res.json({ success: true, ...status });
 });
 
+// Endpoint for client heartbeat and external cron pings (supports both GET and POST)
+app.all(
+  ["/api/discord/scheduler/check", "/api/discord/scheduler/cron-ping", "/api/cron/overdue"],
+  async (req, res) => {
+    try {
+      const result = await overdueScheduler.checkTick();
+      const status = overdueScheduler.getStatus();
+      return res.json({
+        success: true,
+        message: "Automated overdue check processed successfully",
+        result,
+        status,
+      });
+    } catch (err: any) {
+      console.error("[CRON] Error during scheduler check:", err);
+      return res.status(500).json({ success: false, error: err.message || "Scheduler check failed" });
+    }
+  }
+);
+
 // Endpoint to manually trigger scheduled run for testing (e.g. from UI)
 app.post("/api/discord/scheduler/trigger-now", async (req, res) => {
   try {
-    const { timeSlot } = req.body;
-    const result = await executeScheduledOverdueBroadcast(timeSlot || undefined);
+    const { timeSlot, bypassDedup = true } = req.body;
+    const result = await executeScheduledOverdueBroadcast(timeSlot || undefined, bypassDedup);
     return res.json({
       success: true,
-      message: `ดำเนินการส่งแจ้งเตือนยอดค้างเรียบร้อย: ตรวจสอบ ${result.checked} กลุ่ม, ส่งสำเร็จ ${result.sent} กลุ่ม (รอบเวลา ${result.timeSlot} น.)`,
+      message: `ดำเนินการส่งแจ้งเตือนยอดค้างเรียบร้อย: ตรวจสอบ ${result.checked} กลุ่ม, ส่งสำเร็จ ${result.sent} รายการ (รอบเวลา ${result.timeSlot} น.)`,
       ...result,
     });
   } catch (err: any) {

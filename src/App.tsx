@@ -18,6 +18,7 @@ import {
   sendDiscordOverdueWebhookDirect,
   createClientOverdueEmbed,
 } from "./lib/safeApi";
+import { schedulerHeartbeat } from "./lib/schedulerHeartbeat";
 
 export default function App() {
   const [groups, setGroups] = useState<Group[]>([]);
@@ -95,6 +96,7 @@ export default function App() {
   // Discord Webhook 2 (แจ้งเตือนรายชื่อยอดค้าง)
   const [editDiscordOverdueWebhookUrl, setEditDiscordOverdueWebhookUrl] = useState("");
   const [editDiscordOverdueWebhookEnabled, setEditDiscordOverdueWebhookEnabled] = useState(false);
+  const [editDiscordOverdueNotifyOnTransfer, setEditDiscordOverdueNotifyOnTransfer] = useState(true);
   const [editDiscordOverdueAutoSchedule, setEditDiscordOverdueAutoSchedule] = useState(true);
   const [editDiscordOverdueMentionText, setEditDiscordOverdueMentionText] = useState("");
   const [discordOverdueTesting, setDiscordOverdueTesting] = useState(false);
@@ -113,6 +115,43 @@ export default function App() {
   const [commandPreviewData, setCommandPreviewData] = useState<any | null>(null);
   const [commandPreviewLoading, setCommandPreviewLoading] = useState(false);
   const [commandSendSuccess, setCommandSendSuccess] = useState<string | null>(null);
+
+  // Automated scheduler status and triggers
+  const [cronChecking, setCronChecking] = useState(false);
+  const [cronCheckResult, setCronCheckResult] = useState<string | null>(null);
+  const [cronCopied, setCronCopied] = useState(false);
+
+  useEffect(() => {
+    schedulerHeartbeat.start();
+    return () => {
+      schedulerHeartbeat.stop();
+    };
+  }, []);
+
+  const handleTriggerSchedulerCheckNow = async () => {
+    setCronChecking(true);
+    setCronCheckResult(null);
+    try {
+      const data = await schedulerHeartbeat.ping();
+      if (data?.success) {
+        setCronCheckResult("✓ ตรวจสอบและยิงรอบที่ถึงเวลาเรียบร้อยแล้ว");
+      } else {
+        setCronCheckResult("✓ ตรวจสอบสถานะเรียบร้อย");
+      }
+    } catch (err: any) {
+      setCronCheckResult(`ผิดพลาด: ${err.message}`);
+    } finally {
+      setCronChecking(false);
+      setTimeout(() => setCronCheckResult(null), 6000);
+    }
+  };
+
+  const handleCopyCronUrl = () => {
+    const url = schedulerHeartbeat.getCronPingUrl();
+    navigator.clipboard.writeText(url);
+    setCronCopied(true);
+    setTimeout(() => setCronCopied(false), 2500);
+  };
 
   const [unlockedGroupIds, setUnlockedGroupIds] = useState<string[]>(() => {
     try {
@@ -790,15 +829,7 @@ export default function App() {
     overrideMemberName?: string;
   }) => {
     const currentGroup = groups.find((g) => g.id === activeGroupId);
-    if (!currentGroup?.discordWebhookUrl || !currentGroup?.discordWebhookEnabled) {
-      return;
-    }
-    if (params.isAiParsed && currentGroup.discordNotifyOnSlip === false) {
-      return;
-    }
-    if (!params.isAiParsed && currentGroup.discordNotifyOnManualTx === false) {
-      return;
-    }
+    if (!currentGroup) return;
 
     const member = members.find((m) => m.id === params.memberId);
     const memberNickname = params.overrideMemberNickname || member?.nickname || "สมาชิก";
@@ -811,58 +842,130 @@ export default function App() {
     const target = currentGroup.targetAmountPerMember || 0;
     const progressPercent = target > 0 ? Math.round((newTotal / target) * 100) : 0;
 
-    try {
-      const { ok, error } = await safeFetchJson("/api/discord/notify-transaction", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          webhookUrl: currentGroup.discordWebhookUrl,
-          groupName: currentGroup.name,
-          memberNickname,
-          memberName,
-          amount: params.amount,
-          bank: params.bank,
-          date: params.date,
-          time: params.time,
-          notes: params.notes,
-          method: params.isAiParsed ? "AI สแกนสลิป" : "บันทึกด้วยมือ",
-          memberTotalPaid: newTotal,
-          targetAmount: target,
-          progressPercent,
-          hasSlipImage: params.hasSlipImage,
-          slipImageUrl: currentGroup.discordSendSlipImage !== false ? params.slipImageUrl : undefined,
-        }),
-      });
+    // -------------------------------------------------------------
+    // 1. Webhook 1: แจ้งเตือนสลิป & ธุรกรรม (Transaction Slip Alert)
+    // -------------------------------------------------------------
+    const hasSlipWebhook = Boolean(currentGroup.discordWebhookUrl?.trim());
+    const isSlipWebhookEnabled = currentGroup.discordWebhookEnabled ?? hasSlipWebhook;
+    const allowNotifySlip = params.isAiParsed
+      ? currentGroup.discordNotifyOnSlip !== false
+      : currentGroup.discordNotifyOnManualTx !== false;
 
-      if (!ok) {
-        console.warn("[DISCORD] Server notification failed, fallback to direct webhook post...", error);
-        // Direct browser fallback to webhook
-        const embed = {
-          title: "💸 มีการบันทึกยอดเงินเข้าใหม่!",
-          description: `ก๊วน **${currentGroup.name}**\n👤 ผู้โอน: **${memberNickname}**${memberName && memberName !== memberNickname ? ` (${memberName})` : ""}\n💰 ยอดเงิน: **${params.amount.toLocaleString("th-TH")} บาท**\n🏦 บัญชี: ${params.bank || "-"}\n📅 วันเวลา: ${params.date} ${params.time}`,
-          color: 0x10B981,
-          fields: [
-            { name: "📊 สะสมของสมาชิก", value: `${newTotal.toLocaleString("th-TH")} บาท`, inline: true },
-            { name: "🎯 เป้าหมาย", value: `${target.toLocaleString("th-TH")} บาท (${progressPercent}%)`, inline: true },
-            { name: "📝 บันทึกโดย", value: params.isAiParsed ? "🤖 AI สแกนสลิป" : "✍️ บันทึกด้วยมือ", inline: true },
-          ],
-          footer: { text: "Group Money Tracker • Direct Notification" },
-          timestamp: new Date().toISOString(),
-        };
-        fetch(currentGroup.discordWebhookUrl.trim(), {
+    if (hasSlipWebhook && isSlipWebhookEnabled && allowNotifySlip) {
+      try {
+        const { ok, error } = await safeFetchJson("/api/discord/notify-transaction", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            username: "Group Money Bot",
-            avatar_url: "https://cdn-icons-png.flaticon.com/512/9028/9028031.png",
-            embeds: [embed],
+            webhookUrl: currentGroup.discordWebhookUrl,
+            groupName: currentGroup.name,
+            memberNickname,
+            memberName,
+            amount: params.amount,
+            bank: params.bank,
+            date: params.date,
+            time: params.time,
+            notes: params.notes,
+            method: params.isAiParsed ? "AI สแกนสลิป" : "บันทึกด้วยมือ",
+            memberTotalPaid: newTotal,
+            targetAmount: target,
+            progressPercent,
+            hasSlipImage: params.hasSlipImage,
+            slipImageUrl: currentGroup.discordSendSlipImage !== false ? params.slipImageUrl : undefined,
           }),
-        }).catch((directErr) => console.warn("[DISCORD] Direct webhook send also failed:", directErr));
-      } else {
-        console.log("[DISCORD] Successfully notified Discord webhook!");
+        });
+
+        if (!ok) {
+          console.warn("[DISCORD] Server notification failed, fallback to direct webhook post...", error);
+          // Direct browser fallback to webhook
+          const embed = {
+            title: "💸 มีการบันทึกยอดเงินเข้าใหม่!",
+            description: `ก๊วน **${currentGroup.name}**\n👤 ผู้โอน: **${memberNickname}**${memberName && memberName !== memberNickname ? ` (${memberName})` : ""}\n💰 ยอดเงิน: **${params.amount.toLocaleString("th-TH")} บาท**\n🏦 บัญชี: ${params.bank || "-"}\n📅 วันเวลา: ${params.date} ${params.time}`,
+            color: 0x10B981,
+            fields: [
+              { name: "📊 สะสมของสมาชิก", value: `${newTotal.toLocaleString("th-TH")} บาท`, inline: true },
+              { name: "🎯 เป้าหมาย", value: `${target.toLocaleString("th-TH")} บาท (${progressPercent}%)`, inline: true },
+              { name: "📝 บันทึกโดย", value: params.isAiParsed ? "🤖 AI สแกนสลิป" : "✍️ บันทึกด้วยมือ", inline: true },
+            ],
+            footer: { text: "Group Money Tracker • Direct Notification" },
+            timestamp: new Date().toISOString(),
+          };
+          fetch(currentGroup.discordWebhookUrl!.trim(), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              username: "Group Money Bot",
+              avatar_url: "https://cdn-icons-png.flaticon.com/512/9028/9028031.png",
+              embeds: [embed],
+            }),
+          }).catch((directErr) => console.warn("[DISCORD] Direct webhook send also failed:", directErr));
+        } else {
+          console.log("[DISCORD] Successfully notified Discord webhook!");
+        }
+      } catch (err) {
+        console.warn("[DISCORD] Error sending Discord notification:", err);
       }
-    } catch (err) {
-      console.warn("[DISCORD] Error sending Discord notification:", err);
+    }
+
+    // -------------------------------------------------------------
+    // 2. Webhook 2: แจ้งเตือนยอดค้าง (Overdue Balances Alert on Transfer)
+    // -------------------------------------------------------------
+    const hasOverdueWebhook = Boolean(currentGroup.discordOverdueWebhookUrl?.trim());
+    const isOverdueWebhookEnabled = currentGroup.discordOverdueWebhookEnabled ?? hasOverdueWebhook;
+    const allowOverdueOnTransfer = currentGroup.discordOverdueNotifyOnTransfer ?? true;
+
+    if (hasOverdueWebhook && isOverdueWebhookEnabled && allowOverdueOnTransfer) {
+      try {
+        // Construct the newly updated transaction record so calculation has this new payment immediately
+        const newTx: Transaction = {
+          id: `tx-temp-${Date.now()}`,
+          groupId: activeGroupId,
+          memberId: params.memberId,
+          amount: params.amount,
+          date: params.date,
+          time: params.time,
+          bank: params.bank,
+          senderNameText: memberName,
+          isAiParsed: params.isAiParsed,
+          createdAt: new Date().toISOString(),
+        };
+        const updatedTransactions = [...transactions.filter((t) => t.id !== newTx.id), newTx];
+
+        const customNote = `💸 **${memberNickname}** โอนเงินเข้ากลุ่ม **+฿${params.amount.toLocaleString("th-TH")} บาท** (${params.isAiParsed ? "🤖 AI สแกนสลิป" : "✍️ บันทึกการโอน"})`;
+
+        const { ok, error } = await safeFetchJson("/api/discord/notify-overdue", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            webhookUrl: currentGroup.discordOverdueWebhookUrl,
+            groupId: currentGroup.id,
+            period: "current",
+            customTitle: `💸 อัปเดตยอดค้าง: มีการโอนเงินเข้าใหม่! (${currentGroup.name})`,
+            customNote,
+            mentionText: currentGroup.discordOverdueMentionText,
+            group: currentGroup,
+            members,
+            transactions: updatedTransactions,
+          }),
+        });
+
+        if (!ok) {
+          console.warn("[DISCORD Overdue] Server notify-overdue failed, fallback to direct dispatch:", error);
+          const overdueEmbed = createClientOverdueEmbed(currentGroup, members, updatedTransactions, "current");
+          overdueEmbed.description = `💸 **อัปเดตยอดค้าง: มีการโอนเงินเข้าใหม่!**\n🎉 **${memberNickname}** โอนเงินจำนวน **+฿${params.amount.toLocaleString("th-TH")} บาท**\n\n${overdueEmbed.description || ""}`;
+
+          await sendDiscordOverdueWebhookDirect(
+            currentGroup.discordOverdueWebhookUrl!.trim(),
+            currentGroup.name,
+            overdueEmbed,
+            currentGroup.discordOverdueMentionText
+          );
+        } else {
+          console.log("[DISCORD Overdue] Successfully notified overdue webhook about new transfer!");
+        }
+      } catch (overdueErr) {
+        console.warn("[DISCORD Overdue] Error sending overdue update on transfer:", overdueErr);
+      }
     }
   };
 
@@ -1183,6 +1286,7 @@ export default function App() {
           discordOverdueWebhookUrl: editDiscordOverdueWebhookUrl.trim(),
           discordOverdueWebhookEnabled: editDiscordOverdueWebhookEnabled,
           discordOverdueAutoSchedule: editDiscordOverdueAutoSchedule,
+          discordOverdueNotifyOnTransfer: editDiscordOverdueNotifyOnTransfer,
           discordOverdueMentionText: editDiscordOverdueMentionText.trim(),
           discordBotToken: editDiscordBotToken.trim(),
           discordBotEnabled: editDiscordBotEnabled,
@@ -1590,6 +1694,7 @@ export default function App() {
     setEditDiscordOverdueWebhookUrl(group.discordOverdueWebhookUrl || "");
     setEditDiscordOverdueWebhookEnabled(group.discordOverdueWebhookEnabled ?? false);
     setEditDiscordOverdueAutoSchedule(group.discordOverdueAutoSchedule ?? true);
+    setEditDiscordOverdueNotifyOnTransfer(group.discordOverdueNotifyOnTransfer ?? true);
     setEditDiscordOverdueMentionText(group.discordOverdueMentionText || "");
     setDiscordOverdueTestResult(null);
     setDiscordOverdueBroadcastResult(null);
@@ -2556,14 +2661,48 @@ export default function App() {
                           />
                         </div>
 
-                        {/* Automated Schedule Info & Toggle: 06:00, 12:00, 15:00, 20:00 */}
-                        <div className="bg-slate-950/70 border border-amber-500/20 rounded-xl p-3 space-y-2">
+                        {/* แจ้งเตือนยอดค้างทันทีเมื่อมีคนโอนเข้า */}
+                        <div className="bg-slate-950/80 border border-emerald-500/25 rounded-xl p-3 flex items-center justify-between">
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-7 h-7 rounded-lg bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
+                              <Sparkles className="w-3.5 h-3.5" />
+                            </div>
+                            <div>
+                              <span className="text-xs font-bold text-slate-100 block">
+                                แจ้งเตือนยอดค้างทันทีเมื่อมีคนโอนเงินเข้า
+                              </span>
+                              <p className="text-[10px] text-slate-400">
+                                เมื่อสมาชิกโอนเงินหรือสแกนสลิป จะส่งการ์ดสรุปยอดค้างคงเหลือล่าสุดเข้า Webhook นี้ด้วย
+                              </p>
+                            </div>
+                          </div>
+                          <label className="relative inline-flex items-center cursor-pointer ml-3 shrink-0">
+                            <input
+                              type="checkbox"
+                              checked={editDiscordOverdueNotifyOnTransfer}
+                              onChange={(e) => setEditDiscordOverdueNotifyOnTransfer(e.target.checked)}
+                              className="sr-only peer"
+                            />
+                            <div className="w-8 h-4 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[1px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-emerald-500"></div>
+                            <span className="ml-1.5 text-[11px] font-semibold text-slate-300">
+                              {editDiscordOverdueNotifyOnTransfer ? "เปิด" : "ปิด"}
+                            </span>
+                          </label>
+                        </div>
+
+                        {/* Automated Schedule Info & Status: 06:00, 09:00, 11:30, 12:00, 15:00, 20:00 */}
+                        <div className="bg-slate-950/80 border border-amber-500/25 rounded-xl p-3.5 space-y-3">
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-1.5">
-                              <Clock className="w-3.5 h-3.5 text-amber-400" />
-                              <span className="text-xs font-bold text-slate-200">
-                                แจ้งเตือนอัตโนมัติ 4 เวลาต่อวัน
-                              </span>
+                              <Clock className="w-4 h-4 text-amber-400" />
+                              <div>
+                                <span className="text-xs font-bold text-slate-100">
+                                  แจ้งเตือนอัตโนมัติครบ 6 รอบต่อวัน (ส่งทุกรอบ)
+                                </span>
+                                <p className="text-[10px] text-slate-400">
+                                  เซิร์ฟเวอร์จะสรุปยอดค้างและยิงเข้า Discord Webhook ครบทุกรอบ
+                                </p>
+                              </div>
                             </div>
                             <label className="relative inline-flex items-center cursor-pointer">
                               <input
@@ -2579,24 +2718,86 @@ export default function App() {
                             </label>
                           </div>
 
-                          <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-                            <span className="text-[11px] text-slate-400">รอบเวลาส่ง (เวลาไทย GMT+7):</span>
-                            {["06:00", "12:00", "15:00", "20:00"].map((time) => (
-                              <span
-                                key={time}
-                                className={`text-[11px] font-mono px-2 py-0.5 rounded-md border font-semibold ${
-                                  editDiscordOverdueAutoSchedule
-                                    ? "bg-amber-950/50 border-amber-500/40 text-amber-300"
-                                    : "bg-slate-800 border-slate-700 text-slate-500 line-through"
-                                }`}
-                              >
-                                ⏰ {time} น.
-                              </span>
-                            ))}
+                          {/* Schedule Slots Status Grid */}
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 pt-1">
+                            {["06:00", "09:00", "11:30", "12:00", "15:00", "20:00"].map((time) => {
+                              const isSentToday =
+                                activeGroup?.discordSentSlotsToday?.some((k) => k.endsWith(`_${time}`)) ||
+                                activeGroup?.lastAutoOverdueSlotKey?.endsWith(`_${time}`) ||
+                                activeGroup?.discordLastAutoOverdueSlot === time;
+
+                              return (
+                                <div
+                                  key={time}
+                                  className={`p-2 rounded-lg border text-xs flex flex-col justify-between transition ${
+                                    isSentToday
+                                      ? "bg-emerald-950/40 border-emerald-500/40 text-emerald-200"
+                                      : editDiscordOverdueAutoSchedule
+                                      ? "bg-slate-900 border-slate-700/80 text-slate-300"
+                                      : "bg-slate-900/40 border-slate-800 text-slate-500"
+                                  }`}
+                                >
+                                  <div className="flex items-center justify-between">
+                                    <span className="font-mono font-bold text-[12px]">⏰ {time} น.</span>
+                                    {isSentToday ? (
+                                      <span className="text-[10px] font-semibold px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 flex items-center gap-0.5">
+                                        <Check className="w-2.5 h-2.5" /> ส่งแล้ว
+                                      </span>
+                                    ) : (
+                                      <span className="text-[10px] text-slate-400 font-medium">
+                                        {editDiscordOverdueAutoSchedule ? "ตามรอบ" : "ปิด"}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
                           </div>
-                          <p className="text-[10px] text-slate-500 leading-relaxed">
-                            ระบบแบ็กเอนด์จะสรุปรายชื่อคนที่ยังค้างชำระ ยอดเงิน และค่าปรับ แล้วส่งการ์ดแจ้งเตือนเข้า Webhook นี้โดยอัตโนมัติเมื่อถึงเวลา 06:00, 12:00, 15:00 และ 20:00 น.
-                          </p>
+
+                          {/* Quick Trigger Check Button & Cron URL */}
+                          <div className="flex flex-wrap items-center gap-2 pt-1">
+                            <button
+                              type="button"
+                              disabled={cronChecking || !editDiscordOverdueWebhookUrl.trim()}
+                              onClick={handleTriggerSchedulerCheckNow}
+                              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition ${
+                                cronChecking || !editDiscordOverdueWebhookUrl.trim()
+                                  ? "bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700"
+                                  : "bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40 cursor-pointer shadow-sm active:scale-98"
+                              }`}
+                            >
+                              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                              <span>{cronChecking ? "กำลังตรวจสอบและส่ง..." : "⚡ ตรวจสอบและส่งรอบที่ถึงเวลาทันที"}</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={handleCopyCronUrl}
+                              className="px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 cursor-pointer transition active:scale-98"
+                              title="คัดลอกลิงก์ Webhook / Cron Ping เพื่อให้ระบบยิงตรงเวลา 100% แม้ปิดเบราว์เซอร์"
+                            >
+                              <Copy className="w-3.5 h-3.5 text-slate-400" />
+                              <span>{cronCopied ? "✓ คัดลอก Cron URL แล้ว!" : "📋 คัดลอก Cron Ping URL (24 ชม.)"}</span>
+                            </button>
+
+                            {cronCheckResult && (
+                              <span className="text-[11px] text-emerald-400 font-medium animate-pulse">
+                                {cronCheckResult}
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="p-2.5 rounded-lg bg-slate-900/60 border border-slate-800 text-[10px] text-slate-400 space-y-1">
+                            <p className="font-semibold text-slate-300">💡 การันตีส่งครบ 6 รอบทุกวัน ไม่หลุดรอบ:</p>
+                            <ul className="list-disc list-inside space-y-0.5 text-slate-400">
+                              <li>
+                                <strong className="text-slate-300">ขณะเปิดหน้าเว็บนี้ไว้:</strong> ระบบมี Heartbeat ตรวจสอบและยิงส่งเข้า Discord อัตโนมัติทุกรอบ
+                              </li>
+                              <li>
+                                <strong className="text-slate-300">ขณะปิดหน้าเว็บ / ทำงาน 24 ชม.:</strong> แนะนำนำ <span className="text-amber-300">Cron Ping URL</span> ไปตั้งในเว็บฟรี เช่น <span className="text-amber-300 font-mono">cron-job.org</span> ให้ยิงกระตุ้นทุก 10-15 นาที เซิร์ฟเวอร์จะตื่นมาส่งครบ 6 รอบทุกวันแน่นอน 100%
+                              </li>
+                            </ul>
+                          </div>
                         </div>
 
                         {/* Test & Broadcast buttons */}
