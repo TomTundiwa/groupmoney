@@ -971,6 +971,7 @@ import {
   overdueScheduler,
   executeScheduledOverdueBroadcast,
   sendOverdueBroadcastForGroup,
+  resetTodaySentSlots,
   SCHEDULED_BANGKOK_HOURS,
   SCHEDULED_TIME_SLOT_LABELS,
   SCHEDULED_BANGKOK_TIME_SLOTS,
@@ -981,8 +982,8 @@ app.get("/api/discord/scheduler/status", (req, res) => {
   const status = overdueScheduler.getStatus();
   const publicAppUrl = process.env.APP_URL || "";
   const cronPingUrl = publicAppUrl
-    ? `${publicAppUrl}/api/discord/scheduler/cron-ping`
-    : "/api/discord/scheduler/cron-ping";
+    ? `${publicAppUrl}/api/cron/overdue`
+    : "/api/cron/overdue";
 
   return res.json({
     success: true,
@@ -997,7 +998,10 @@ app.all(
   ["/api/discord/scheduler/check", "/api/discord/scheduler/cron-ping", "/api/cron/overdue"],
   async (req, res) => {
     try {
-      const result = await overdueScheduler.checkTick();
+      const force = req.query.force === "true" || req.body?.force === true;
+      const bypass = req.query.bypass === "true" || req.body?.bypass === true || force;
+      const slot = (req.query.slot as string) || req.body?.slot;
+      const result = await overdueScheduler.checkTick(slot, bypass);
       const status = overdueScheduler.getStatus();
       return res.json({
         success: true,
@@ -1011,6 +1015,22 @@ app.all(
     }
   }
 );
+
+// Endpoint to reset today's sent slots so the schedule can be tested or re-run
+app.post("/api/discord/scheduler/reset-today", async (req, res) => {
+  try {
+    const { groupId } = req.body || {};
+    const result = await resetTodaySentSlots(groupId);
+    return res.json({
+      success: true,
+      message: `รีเซ็ตสถานะการส่งของวันนี้เรียบร้อยแล้ว (${result.count} กลุ่ม) สามารถเริ่มส่งตามรอบเวลาใหม่ได้ทันที`,
+      ...result,
+    });
+  } catch (err: any) {
+    console.error("Error resetting today's sent slots:", err);
+    return res.status(500).json({ success: false, error: err.message || "Failed to reset today's slots" });
+  }
+});
 
 // Endpoint to manually trigger scheduled run for testing (e.g. from UI)
 app.post("/api/discord/scheduler/trigger-now", async (req, res) => {

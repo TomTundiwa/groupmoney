@@ -213,11 +213,43 @@ export default function App() {
     setCronChecking(true);
     setCronCheckResult(null);
     try {
-      const data = await schedulerHeartbeat.ping();
-      if (data?.success) {
-        setCronCheckResult("✓ ตรวจสอบและยิงรอบที่ถึงเวลาเรียบร้อยแล้ว");
+      const res = await safeFetchJson<{ success: boolean; sent?: number; error?: string }>(
+        "/api/discord/scheduler/trigger-now",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ bypassDedup: true }),
+        }
+      );
+      if (res?.success) {
+        setCronCheckResult(`✓ ส่งการ์ดยอดค้างเข้า Discord สำเร็จแล้ว! (ส่ง ${res.sent || 1} รายการ)`);
       } else {
-        setCronCheckResult("✓ ตรวจสอบสถานะเรียบร้อย");
+        setCronCheckResult(`แจ้งเตือน: ${res?.error || "ไม่สามารถส่งได้"}`);
+      }
+    } catch (err: any) {
+      setCronCheckResult(`ผิดพลาด: ${err.message}`);
+    } finally {
+      setCronChecking(false);
+      setTimeout(() => setCronCheckResult(null), 7000);
+    }
+  };
+
+  const handleResetTodaySlots = async () => {
+    setCronChecking(true);
+    setCronCheckResult(null);
+    try {
+      const res = await safeFetchJson<{ success: boolean; count?: number; error?: string }>(
+        "/api/discord/scheduler/reset-today",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ groupId: activeGroupId }),
+        }
+      );
+      if (res?.success) {
+        setCronCheckResult("✓ รีเซ็ตคิวส่งของวันนี้เรียบร้อยแล้ว สามารถเริ่มส่งรอบเวลาวันนี้ได้ใหม่ทันที");
+      } else {
+        setCronCheckResult(`ผิดพลาด: ${res?.error || "ไม่สามารถรีเซ็ตได้"}`);
       }
     } catch (err: any) {
       setCronCheckResult(`ผิดพลาด: ${err.message}`);
@@ -3319,21 +3351,33 @@ export default function App() {
                               className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition ${
                                 cronChecking || !editDiscordOverdueWebhookUrl.trim()
                                   ? "bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700"
-                                  : "bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40 cursor-pointer shadow-sm active:scale-98"
+                                  : "bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 cursor-pointer shadow-sm active:scale-98"
                               }`}
+                              title="ส่งการ์ดยอดค้างเข้า Discord ทันทีตอนนี้เพื่อทดสอบ"
                             >
-                              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                              <span>{cronChecking ? "กำลังตรวจสอบและส่ง..." : "⚡ ตรวจสอบและส่งรอบที่ถึงเวลาทันที"}</span>
+                              <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                              <span>{cronChecking ? "กำลังส่งเข้า Discord..." : "⚡ ทดสอบยิงยอดค้างเข้า Discord ทันที"}</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              disabled={cronChecking}
+                              onClick={handleResetTodaySlots}
+                              className="px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-amber-300 border border-amber-500/30 hover:border-amber-500/50 cursor-pointer transition active:scale-98"
+                              title="ล้างประวัติการส่งของวันนี้ เพื่อให้ระบบเริ่มส่งรอบเวลาของวันนี้ใหม่อีกครั้ง"
+                            >
+                              <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
+                              <span>🔄 รีเซ็ตคิวส่งวันนี้</span>
                             </button>
 
                             <button
                               type="button"
                               onClick={handleCopyCronUrl}
                               className="px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 cursor-pointer transition active:scale-98"
-                              title="คัดลอกลิงก์ Webhook / Cron Ping เพื่อให้ระบบยิงตรงเวลา 100% แม้ปิดเบราว์เซอร์"
+                              title="คัดลอกลิงก์ Cron URL ไปใส่ใน cron-job.org หรือ UptimeRobot เพื่อให้ส่งอัตโนมัติ 24 ชม. แม้ไม่มีใครเปิดเว็บ"
                             >
                               <Copy className="w-3.5 h-3.5 text-slate-400" />
-                              <span>{cronCopied ? "✓ คัดลอกแล้ว!" : "📋 คัดลอก Cron URL"}</span>
+                              <span>{cronCopied ? "✓ คัดลอกแล้ว!" : "📋 คัดลอก Cron URL (24 ชม.)"}</span>
                             </button>
 
                             <button
@@ -3347,7 +3391,7 @@ export default function App() {
                             </button>
 
                             {cronCheckResult && (
-                              <span className="text-[11px] text-emerald-400 font-medium animate-pulse">
+                              <span className="text-[11px] text-emerald-400 font-medium animate-pulse w-full pt-1">
                                 {cronCheckResult}
                               </span>
                             )}

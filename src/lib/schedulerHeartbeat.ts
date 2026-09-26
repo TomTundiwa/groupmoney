@@ -104,9 +104,9 @@ class SchedulerHeartbeat {
 
   getCronPingUrl(): string {
     if (typeof window !== "undefined") {
-      return `${window.location.origin}/api/discord/scheduler/cron-ping`;
+      return `${window.location.origin}/api/cron/overdue`;
     }
-    return "/api/discord/scheduler/cron-ping";
+    return "/api/cron/overdue";
   }
 }
 

@@ -234,10 +234,14 @@ export function calculateMemberCarryover(
     const rawPaid = txsInWeek.reduce((sum, tx) => sum + tx.amount, 0);
     const effectiveLateFee = (customLateFee !== undefined && customLateFee !== null && String(customLateFee).trim() !== "") ? Number(customLateFee) : lateFeePerWeek;
 
-    // ตรวจสอบว่าสัปดาห์นี้เริ่มต้นด้วยยอดค้างชำระยกมาหรือไม่
+    // ตรวจสอบว่าสัปดาห์นี้เริ่มต้นด้วยยอดค้างชำระยกมา หรือยอดโอนในสัปดาห์นี้ยังไม่ถึงเป้าหมาย
     const hasCarriedDeficit = currentCarryOver < 0 && (!isFirstWeek || initialCarryover < 0);
+    const isUnpaidThisWeek = (rawPaid + currentCarryOver) < targetAmount;
+
     if (hasCarriedDeficit) {
       consecutiveOverdueWeeks += 1;
+    } else if (isUnpaidThisWeek) {
+      consecutiveOverdueWeeks = 1;
     } else {
       consecutiveOverdueWeeks = 0;
     }
@@ -246,14 +250,15 @@ export function calculateMemberCarryover(
     let isLateFeeWaived = false;
     let waivedLateFeeAmount = 0;
 
-    if (hasCarriedDeficit && effectiveLateFee > 0) {
-      if (consecutiveOverdueWeeks <= effectiveGraceWeeks) {
-        // อยู่ในช่วงละเว้นค่าปรับ (Grace Period)
+    // คิดค่าปรับเมื่อมีหนี้ค้าง (ไม่ว่าจะยกมาหรือยังจ่ายไม่ครบในสัปดาห์ปัจจุบัน) และมีการตั้งค่าปรับไว้
+    if ((hasCarriedDeficit || isUnpaidThisWeek) && effectiveLateFee > 0) {
+      if (effectiveGraceWeeks > 0 && consecutiveOverdueWeeks <= effectiveGraceWeeks) {
+        // อยู่ในช่วงละเว้นค่าปรับ (Grace Period เช่น ละเว้น 1 สัปดาห์แรก)
         isLateFeeWaived = true;
         waivedLateFeeAmount = effectiveLateFee;
         lateFee = 0;
       } else {
-        // พ้นระยะเวลาละเว้นค่าปรับแล้ว คิดค่าปรับตามปกติ
+        // พ้นระยะเวลาละเว้น หรือตั้งค่าละเว้นเป็น 0 (คิดค่าปรับทันทีในอาทิตย์ปัจจุบันที่มีหนี้ค้าง)
         lateFee = effectiveLateFee;
         isLateFeeWaived = false;
         waivedLateFeeAmount = 0;
@@ -269,6 +274,7 @@ export function calculateMemberCarryover(
 
     if (available >= targetAmount) {
       isPaidFully = true;
+      consecutiveOverdueWeeks = 0;
       // หากจ่ายครบถ้วน (ครอบคลุมทั้งเป้าหมาย ยอดค้าง และค่าปรับ) ยอดส่วนเกินจะถูกทบเป็นยอดบวก (+)
       carriedOut = available - targetAmount;
       deficit = 0;

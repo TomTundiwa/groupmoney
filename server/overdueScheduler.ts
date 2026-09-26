@@ -340,12 +340,18 @@ export async function executeScheduledOverdueBroadcast(
           if (slotMinutes <= bkk.totalMinutes) {
             const slotKey = `${bkk.dateKey}_${slotLabel}`;
             const alreadySent =
-              group.discordSentSlotsToday?.includes(slotKey) || group.lastAutoOverdueSlotKey === slotKey;
+              !bypassDedup &&
+              (group.discordSentSlotsToday?.includes(slotKey) || group.lastAutoOverdueSlotKey === slotKey);
 
             if (!alreadySent) {
               slotsToSend.push(slotLabel);
             }
           }
+        }
+
+        // If bypassDedup is true and still nothing was added, fallback to current or closest slot
+        if (bypassDedup && slotsToSend.length === 0) {
+          slotsToSend.push(getClosestOrCurrentSlotLabel(bkk));
         }
       }
 
@@ -421,12 +427,12 @@ class OverdueSchedulerService {
     }
   }
 
-  async checkTick(): Promise<{ checked: number; sent: number; timeSlot: string; details: any[] } | null> {
+  async checkTick(forceTimeSlot?: string, bypassDedup: boolean = false): Promise<{ checked: number; sent: number; timeSlot: string; details: any[] } | null> {
     if (this.isChecking) return null;
     this.isChecking = true;
 
     try {
-      return await executeScheduledOverdueBroadcast();
+      return await executeScheduledOverdueBroadcast(forceTimeSlot, bypassDedup);
     } finally {
       this.isChecking = false;
     }
@@ -447,6 +453,28 @@ class OverdueSchedulerService {
       scheduledSlots: DEFAULT_SCHEDULED_SLOTS,
       reachedSlotsToday: reachedSlots,
     };
+  }
+}
+
+/**
+ * Reset today's sent slots so the scheduled rounds can be tested or re-sent today
+ */
+export async function resetTodaySentSlots(groupId?: string): Promise<{ success: boolean; count: number }> {
+  try {
+    const snap = await getDocs(collection(db, "groups"));
+    let count = 0;
+    for (const d of snap.docs) {
+      if (groupId && d.id !== groupId) continue;
+      await updateDoc(doc(db, "groups", d.id), {
+        discordSentSlotsToday: [],
+        lastAutoOverdueSlotKey: "",
+      });
+      count++;
+    }
+    return { success: true, count };
+  } catch (err: any) {
+    console.error("[AutoOverdue] Error resetting sent slots:", err);
+    return { success: false, count: 0 };
   }
 }
 
