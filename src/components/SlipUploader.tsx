@@ -17,6 +17,7 @@ interface SlipUploaderProps {
   profileMemberId?: string;
   profileRealName?: string;
   profileNickname?: string;
+  onViewTransactions?: () => void;
 }
 
 export default function SlipUploader({
@@ -26,6 +27,7 @@ export default function SlipUploader({
   profileMemberId = "",
   profileRealName = "",
   profileNickname = "",
+  onViewTransactions,
 }: SlipUploaderProps) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -447,7 +449,7 @@ export default function SlipUploader({
                       });
                       setError(null);
                     }}
-                    className="flex-1 px-3 py-2 bg-slate-800 hover:bg-slate-700/80 border border-slate-700 text-slate-200 hover:text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
+                    className="flex-1 px-3 py-2 bg-slate-800 hover:bg-slate-700/80 border border-slate-700 text-slate-200 hover:text-slate-100 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
                   >
                     <FileText className="w-3.5 h-3.5 text-emerald-400" /> กรอกข้อมูลสลิปเอง (Manual)
                   </button>
@@ -515,13 +517,27 @@ export default function SlipUploader({
               )}
             </div>
 
-            <button
-              type="button"
-              onClick={() => setSuccessInfo(null)}
-              className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-xl transition focus:outline-none shadow-md shadow-emerald-950/20 cursor-pointer"
-            >
-              ตกลง (อัปโหลดใบต่อไป)
-            </button>
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <button
+                type="button"
+                onClick={() => setSuccessInfo(null)}
+                className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-xl transition focus:outline-none shadow-md shadow-emerald-950/20 cursor-pointer"
+              >
+                ตกลง (อัปโหลดใบต่อไป)
+              </button>
+              {onViewTransactions && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSuccessInfo(null);
+                    onViewTransactions();
+                  }}
+                  className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-emerald-400 hover:text-emerald-300 font-bold text-xs rounded-xl border border-slate-700 transition focus:outline-none cursor-pointer flex items-center gap-1.5"
+                >
+                  <span>🧾 ไปดูหน้าประวัติการโอน</span>
+                </button>
+              )}
+            </div>
           </motion.div>
         )}
 

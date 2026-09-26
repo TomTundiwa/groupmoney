@@ -1,8 +1,9 @@
 import React, { useState, useMemo } from "react";
 import { Group, Member, Transaction } from "../types";
-import { Plus, Users, Landmark, PiggyBank, Target, ChevronDown, Lock, Unlock, ShieldAlert, ShieldCheck, Trash2, Key, Copy, Check, Smartphone, RefreshCw, Laptop, Settings, Crown, Edit2, Sparkles, DollarSign, Radio, Bot, BellRing } from "lucide-react";
+import { Plus, Users, Landmark, PiggyBank, Target, ChevronDown, Lock, Unlock, ShieldAlert, ShieldCheck, Trash2, Key, Copy, Check, Smartphone, RefreshCw, Laptop, Settings, Crown, Edit2, Sparkles, DollarSign, Radio, Bot, BellRing, Palette, Sun, Moon } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { calculateMemberCarryover } from "../lib/carryover";
+import ThemeSelectorModal, { AppTheme, THEME_OPTIONS } from "./ThemeSelectorModal";
 
 interface HeaderProps {
   groups: Group[];
@@ -27,6 +28,8 @@ interface HeaderProps {
   onUpdateProfile?: (nickname: string, realName: string, emoji: string, memberId: string) => void;
   onOpenGroupSettings?: () => void;
   onUpdateGroupTotalMoney?: (newTotal: number, reason?: string) => Promise<void> | void;
+  currentTheme?: AppTheme;
+  onChangeTheme?: (theme: AppTheme) => void;
 }
 
 export default function Header({
@@ -51,8 +54,12 @@ export default function Header({
   onUpdateProfile,
   onOpenGroupSettings,
   onUpdateGroupTotalMoney,
+  currentTheme = "mint",
+  onChangeTheme,
 }: HeaderProps) {
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showThemeModal, setShowThemeModal] = useState(false);
+  const activeThemeOption = THEME_OPTIONS.find((t) => t.id === currentTheme) || THEME_OPTIONS[0];
   const [newGroupName, setNewGroupName] = useState("");
   const [newGroupTarget, setNewGroupTarget] = useState<number>(200);
   const [newGroupDesc, setNewGroupDesc] = useState("");
@@ -116,9 +123,6 @@ export default function Header({
   // Copy passcode state
   const [copiedPasscode, setCopiedPasscode] = useState(false);
 
-  // Reset System States
-  const [showResetConfirm, setShowResetConfirm] = useState(false);
-  const [showResetSuccess, setShowResetSuccess] = useState(false);
 
   const activeGroup = groups.find((g) => g.id === activeGroupId);
 
@@ -158,13 +162,6 @@ export default function Header({
     }
   };
 
-  const handleConfirmDeleteGroup = () => {
-    if (onDeleteActiveGroup) {
-      onDeleteActiveGroup();
-    }
-    setShowResetConfirm(false);
-    setShowResetSuccess(true);
-  };
 
   const handleCustomDeviceSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -199,7 +196,9 @@ export default function Header({
         activeGroup?.createdAt || new Date().toISOString(),
         activeGroup?.lateFeePerWeek || 0,
         member.initialCarryover || 0,
-        member.customLateFee
+        member.customLateFee,
+        activeGroup?.lateFeeGraceWeeks || 0,
+        member.customLateFeeGraceWeeks
       );
       return {
         member,
@@ -324,17 +323,46 @@ export default function Header({
                  <span className="max-w-[80px] truncate">{profileNickname || "ตั้งค่าโปรไฟล์"}</span>
                </button>
 
+               {/* Theme Selector Button & Quick Toggle */}
                <button
-                 onClick={() => {
-                   onOpenGroupSettings?.();
-                 }}
-                 className="flex items-center gap-1.5 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 hover:border-amber-500/50 px-3 py-2 rounded-xl text-xs font-sans font-bold shadow-sm transition cursor-pointer"
-                 title="ตั้งค่าก๊วน ค่าปรับจ่ายช้า และแอดหัวหน้ากลุ่ม"
+                 type="button"
+                 onClick={() => setShowThemeModal(true)}
+                 className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700/80 text-slate-200 border border-slate-700 hover:border-slate-600 px-3 py-2 rounded-xl text-xs font-sans font-bold shadow-sm transition cursor-pointer"
+                 title="เปลี่ยนโทนสีของเว็ป (เลือกได้ 5 โทนสีสวยงาม)"
+                 id="header-theme-btn"
                >
-                 <Settings className="w-4 h-4 text-amber-400 animate-spin-slow" />
-                 <span className="hidden sm:inline">⚙️ ตั้งค่า / แอดหัวหน้า</span>
-                 <span className="sm:hidden">⚙️ ตั้งค่า</span>
+                 <Palette className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                 <span className="hidden md:inline text-slate-400">โทนสี:</span>
+                 <span className="flex items-center gap-1">
+                   <span
+                     className="w-2.5 h-2.5 rounded-full inline-block border border-white/20 shadow-xs"
+                     style={{ backgroundColor: activeThemeOption.accentHex }}
+                   />
+                   <span className="truncate max-w-[70px] sm:max-w-[100px] text-slate-100">{activeThemeOption.name.split(" ")[0]}</span>
+                 </span>
                </button>
+
+               {/* Quick Light/Dark Mode Switcher */}
+               <button
+                 type="button"
+                 onClick={() => {
+                   if (onChangeTheme) {
+                     const next = currentTheme === "light" ? "mint" : "light";
+                     onChangeTheme(next);
+                   }
+                 }}
+                 className="p-2 bg-slate-800 hover:bg-slate-700/80 text-amber-400 hover:text-amber-300 border border-slate-700 hover:border-slate-600 rounded-xl text-xs transition cursor-pointer shadow-sm"
+                 title={currentTheme === "light" ? "สลับเป็นโหมดมืด (Dark / Mint)" : "สลับเป็นโหมดสว่างคลีน (Light Mode)"}
+                 id="header-quick-theme-toggle"
+               >
+                 {currentTheme === "light" ? (
+                   <Moon className="w-3.5 h-3.5 text-indigo-400" />
+                 ) : (
+                   <Sun className="w-3.5 h-3.5 text-amber-400" />
+                 )}
+               </button>
+
+
 
                {isLeader ? (
                  <div className="flex items-center gap-1.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-3 py-2 rounded-xl text-xs font-sans font-bold shadow-sm">
@@ -376,16 +404,6 @@ export default function Header({
                  </div>
                )}
 
-               {onDeleteActiveGroup && isLeader && (
-                 <button
-                   onClick={() => setShowResetConfirm(true)}
-                   className="flex items-center gap-1 px-2.5 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 rounded-xl text-xs font-sans font-bold transition focus:outline-none cursor-pointer"
-                   title="ลบเซิฟเวอร์นี้ออกจากระบบ"
-                 >
-                   <Trash2 className="w-3.5 h-3.5" />
-                   <span>ลบเซิฟเวอร์นี้</span>
-                 </button>
-               )}
              </div>
 
             {/* Dropdown Selector */}
@@ -664,80 +682,6 @@ export default function Header({
           </div>
         )}
 
-        {/* Custom Delete Group Confirmation Modal */}
-        {showResetConfirm && (
-          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-slate-800 border border-slate-700 rounded-3xl w-full max-w-md p-6 shadow-2xl text-slate-100"
-            >
-              <div className="flex items-center gap-3 mb-4 text-rose-400">
-                <div className="p-3 bg-rose-500/10 rounded-2xl border border-rose-500/15">
-                  <ShieldAlert className="w-6 h-6" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold font-sans">ยืนยันลบเซิฟเวอร์นี้?</h3>
-                  <p className="text-[11px] text-rose-400/80 font-mono mt-0.5">DELETE ACTIVE GROUP</p>
-                </div>
-              </div>
-
-              <div className="space-y-3 text-sm text-slate-300 font-sans mb-6">
-                <p>
-                  คุณกำลังจะลบเซิฟเวอร์ <strong className="text-rose-400 font-semibold">"{activeGroup?.name}"</strong> พร้อมรายชื่อสมาชิกและประวัติการโอนเงินทั้งหมดภายในกลุ่มนี้อย่างถาวร
-                </p>
-                <div className="bg-rose-500/5 border border-rose-500/10 rounded-xl p-3 text-xs text-rose-300/90 leading-relaxed">
-                  ⚠️ <strong>คำเตือน:</strong> การดำเนินการนี้ไม่สามารถย้อนกลับได้ ข้อมูลทั้งหมดจะหายไปอย่างถาวร
-                </div>
-              </div>
-
-              <div className="flex items-center justify-end gap-3 font-sans">
-                <button
-                  type="button"
-                  onClick={() => setShowResetConfirm(false)}
-                  className="px-4 py-2.5 text-slate-400 hover:text-slate-200 transition text-sm font-medium cursor-pointer"
-                >
-                  ยกเลิก
-                </button>
-                <button
-                  type="button"
-                  onClick={handleConfirmDeleteGroup}
-                  className="px-5 py-2.5 bg-rose-500 hover:bg-rose-600 text-slate-100 rounded-xl font-bold text-sm transition shadow-lg shadow-rose-950/50 cursor-pointer"
-                >
-                  ใช่, ลบเซิฟเวอร์นี้
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-
-        {/* Custom Delete Group Success Modal */}
-        {showResetSuccess && (
-          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              className="bg-slate-800 border border-slate-700 rounded-3xl w-full max-w-sm p-6 shadow-2xl text-slate-100 text-center"
-            >
-              <div className="mx-auto w-12 h-12 bg-emerald-500/10 text-emerald-400 rounded-full flex items-center justify-center border border-emerald-500/20 mb-4">
-                <ShieldCheck className="w-6 h-6" />
-              </div>
-              <h3 className="text-lg font-bold text-slate-100 font-sans mb-2">ลบเซิฟเวอร์เสร็จสิ้น!</h3>
-              <p className="text-xs text-slate-400 font-sans mb-6 leading-relaxed">
-                เซิฟเวอร์นี้และข้อมูลทั้งหมดภายในกลุ่มถูกลบออกจากระบบของคุณเรียบร้อยแล้วครับ 🚀
-              </p>
-              <button
-                type="button"
-                onClick={() => setShowResetSuccess(false)}
-                className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl font-bold text-sm transition focus:outline-none cursor-pointer"
-              >
-                ตกลง
-              </button>
-            </motion.div>
-          </div>
-        )}
 
         {/* Join Group with Passcode Modal */}
         {showJoinModal && (
@@ -1238,6 +1182,16 @@ export default function Header({
           </div>
         )}
       </AnimatePresence>
+
+      {/* Theme Selector Modal */}
+      <ThemeSelectorModal
+        isOpen={showThemeModal}
+        currentTheme={currentTheme}
+        onSelectTheme={(t) => {
+          if (onChangeTheme) onChangeTheme(t);
+        }}
+        onClose={() => setShowThemeModal(false)}
+      />
     </header>
   );
 }

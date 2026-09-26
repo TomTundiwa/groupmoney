@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Member, Transaction } from "../types";
-import { Users, Plus, Search, ChevronRight, UserCheck, AlertTriangle, Sparkles, Trash2, Lock, Edit2, Check, X, Calendar, Clock, Landmark, CreditCard, Info, Award, ArrowRightLeft, Coins, History, FileImage, BellRing } from "lucide-react";
+import { Users, Plus, Search, ChevronRight, UserCheck, AlertTriangle, Sparkles, Trash2, Lock, Edit2, Check, X, Calendar, Clock, Landmark, CreditCard, Info, Award, ArrowRightLeft, Coins, History, FileImage, BellRing, ShieldCheck, ShieldAlert, LayoutGrid, List, AppWindow } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { calculateMemberCarryover, MemberCarryoverResult } from "../lib/carryover";
 import SlipImageViewerModal from "./SlipImageViewerModal";
@@ -10,6 +10,7 @@ interface MemberManagerProps {
   transactions: Transaction[];
   targetAmountPerMember: number;
   lateFeePerWeek?: number;
+  lateFeeGraceWeeks?: number;
   lateFeeNote?: string;
   groupCreatedAt: string;
   onAddMember: (name: string, nickname: string) => void;
@@ -25,7 +26,7 @@ interface MemberManagerProps {
     discordUsername?: string
   ) => void;
   onUpdateMemberCustomLateFee?: (memberId: string, customLateFee: number | undefined) => Promise<void> | void;
-  onUpdateLateFee?: (lateFeePerWeek: number, lateFeeNote: string) => void;
+  onUpdateLateFee?: (lateFeePerWeek: number, lateFeeNote: string, lateFeeGraceWeeks?: number) => void;
   onBroadcastOverdueToDiscord?: () => void;
   hasOverdueWebhook?: boolean;
   isLeader?: boolean;
@@ -40,6 +41,7 @@ export default function MemberManager({
   transactions,
   targetAmountPerMember,
   lateFeePerWeek = 0,
+  lateFeeGraceWeeks = 0,
   lateFeeNote = "",
   groupCreatedAt,
   onAddMember,
@@ -61,6 +63,20 @@ export default function MemberManager({
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<"default" | "unpaid" | "paid" | "alphabetical">("default");
+  const [viewMode, setViewMode] = useState<"window" | "list">(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("slipbuddy_member_view_mode");
+      if (saved === "window" || saved === "list") return saved;
+    }
+    return "window";
+  });
+
+  const handleSetViewMode = (mode: "window" | "list") => {
+    setViewMode(mode);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("slipbuddy_member_view_mode", mode);
+    }
+  };
   const [selectedSlipTx, setSelectedSlipTx] = useState<Transaction | null>(null);
 
   // Edit States
@@ -133,7 +149,9 @@ export default function MemberManager({
       groupCreatedAt,
       lateFeePerWeek,
       member.initialCarryover || 0,
-      member.customLateFee
+      member.customLateFee,
+      lateFeeGraceWeeks,
+      member.customLateFeeGraceWeeks
     );
     const memberTxs = transactions.filter((t) => t.memberId === member.id);
 
@@ -281,13 +299,28 @@ export default function MemberManager({
 
       {/* Concise Late Fee Rule Banner */}
       {lateFeePerWeek > 0 && (
-        <div className="mb-3.5 bg-rose-500/10 border border-rose-500/25 text-rose-300 text-xs py-2 px-3.5 rounded-xl flex items-center gap-2 font-sans">
-          <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
-          <span>
-            หากจ่ายช้าจะถูกปรับ{" "}
-            <strong className="text-rose-400 font-mono font-bold">฿{lateFeePerWeek.toLocaleString("th-TH")}</strong>{" "}
-            บาท คิดค่าปรับอัตโนมัติทุกๆวันจันทร์ เวลา 00:00 น.
-          </span>
+        <div className="mb-3.5 bg-rose-500/10 border border-rose-500/25 text-rose-300 text-xs py-2 px-3.5 rounded-xl flex items-center justify-between gap-2 font-sans flex-wrap">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+            <span>
+              หากจ่ายช้าจะถูกปรับ{" "}
+              <strong className="text-rose-400 font-mono font-bold">฿{lateFeePerWeek.toLocaleString("th-TH")}</strong>{" "}
+              บาท/สัปดาห์
+              {lateFeeGraceWeeks > 0 ? (
+                <span className="text-emerald-300 ml-1.5 font-medium inline-flex items-center gap-1 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-md text-[11px]">
+                  <ShieldCheck className="w-3 h-3 text-emerald-400" />
+                  ละเว้น {lateFeeGraceWeeks} สัปดาห์แรกที่ค้าง
+                </span>
+              ) : (
+                <span className="text-slate-400 ml-1.5">(คิดค่าปรับอัตโนมัติทุกๆวันจันทร์ 00:00 น.)</span>
+              )}
+            </span>
+          </div>
+          {lateFeeNote && (
+            <span className="text-[11px] text-slate-400 italic">
+              เงื่อนไข: {lateFeeNote}
+            </span>
+          )}
         </div>
       )}
 
@@ -305,7 +338,7 @@ export default function MemberManager({
         />
       </div>
 
-      {/* Modern Sorting Options Segment Control */}
+      {/* Modern Sorting & View Options Segment Control */}
       <div className="flex flex-wrap items-center justify-between gap-2 mb-3 text-[11px] font-sans">
         <div className="flex flex-wrap items-center gap-1.5 bg-slate-950/40 p-1.5 rounded-xl border border-slate-850">
           <span className="pl-1 mr-1 text-slate-500 font-medium">เรียงลำดับ:</span>
@@ -357,19 +390,348 @@ export default function MemberManager({
           </button>
         </div>
 
-        {/* Aggregate sum badge for all members */}
-        {members.length > 0 && (
-          <div className="flex items-center gap-2 text-[10px] font-mono text-slate-400 bg-slate-900/60 px-3 py-1.5 rounded-xl border border-slate-800">
-            <span>ยอดสะสมทุกคน:</span>
-            <span className="text-emerald-400 font-bold">฿{totalAllMembersPaid.toLocaleString("th-TH", { minimumFractionDigits: 2 })}</span>
+        {/* View Mode Switch: จัดเรียงแบบหน้าต่าง / แบบรายการ */}
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 bg-slate-950/60 p-1 rounded-xl border border-slate-800">
+            <button
+              type="button"
+              onClick={() => handleSetViewMode("window")}
+              className={`px-2.5 py-1 rounded-lg transition flex items-center gap-1.5 font-bold cursor-pointer text-xs ${
+                viewMode === "window"
+                  ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shadow-sm"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+              title="จัดเรียงแบบหน้าต่าง (Window / Card Tiles)"
+            >
+              <LayoutGrid className="w-3.5 h-3.5" />
+              <span>แบบหน้าต่าง</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSetViewMode("list")}
+              className={`px-2.5 py-1 rounded-lg transition flex items-center gap-1.5 font-bold cursor-pointer text-xs ${
+                viewMode === "list"
+                  ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shadow-sm"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+              title="จัดเรียงแบบรายการแถวเดี่ยว (List View)"
+            >
+              <List className="w-3.5 h-3.5" />
+              <span>แบบรายการ</span>
+            </button>
           </div>
-        )}
+
+          {/* Aggregate sum badge for all members */}
+          {members.length > 0 && (
+            <div className="hidden sm:flex items-center gap-2 text-[10px] font-mono text-slate-400 bg-slate-900/60 px-3 py-1.5 rounded-xl border border-slate-800">
+              <span>ยอดสะสม:</span>
+              <span className="text-emerald-400 font-bold">฿{totalAllMembersPaid.toLocaleString("th-TH", { minimumFractionDigits: 2 })}</span>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Member Items Grid/List */}
       {sortedMembers.length === 0 ? (
         <div className="text-center py-8 border border-dashed border-slate-800 rounded-2xl text-slate-500 text-xs">
           ยังไม่มีรายชื่อสมาชิกในกลุ่มนี้
+        </div>
+      ) : viewMode === "window" ? (
+        /* Window / Card Grid View (จัดเรียงแบบหน้าต่าง) */
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[540px] overflow-y-auto pr-1" id="members-list">
+          {sortedMembers.map((m) => (
+            editingId === m.id ? (
+              <div
+                key={m.id}
+                className="col-span-full flex flex-col gap-2 p-3.5 bg-slate-800/30 border border-emerald-500/40 rounded-2xl transition shadow-lg"
+              >
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                  <div>
+                    <label className="block text-[9px] text-slate-400 mb-0.5">ชื่อเล่น</label>
+                    <input
+                      type="text"
+                      value={editNickname}
+                      onChange={(e) => setEditNickname(e.target.value)}
+                      placeholder="ชื่อเล่น"
+                      className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-slate-100 focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[9px] text-slate-400 mb-0.5">ชื่อจริงสำหรับตรวจสอบสลิป</label>
+                    <input
+                      type="text"
+                      value={editName}
+                      onChange={(e) => setEditName(e.target.value)}
+                      placeholder="ชื่อจริง (ใช้ตรวจสลิป)"
+                      className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs text-slate-100 focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[9px] text-emerald-400 font-semibold mb-0.5">ยอดเงินที่จ่ายแล้ว (฿)</label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={editTotalPaid}
+                      onChange={(e) => setEditTotalPaid(e.target.value)}
+                      placeholder="ยอดโอนสะสม"
+                      className="w-full px-2.5 py-1.5 bg-slate-900 border border-emerald-500/50 rounded-lg text-xs text-emerald-400 font-mono focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[9px] text-amber-400 font-semibold mb-0.5">ยอดค้างยกมาตั้งต้น (ติดลบ = ค้าง)</label>
+                    <input
+                      type="number"
+                      step="any"
+                      value={editInitialCarryover}
+                      onChange={(e) => setEditInitialCarryover(e.target.value)}
+                      placeholder="เช่น -50"
+                      className="w-full px-2.5 py-1.5 bg-slate-900 border border-amber-500/50 rounded-lg text-xs text-amber-300 font-mono focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between mb-0.5">
+                      <label className="block text-[9px] text-rose-400 font-semibold">ค่าปรับเฉพาะคน (฿/สัปดาห์)</label>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setEditCustomLateFee("")}
+                          className="text-[8px] text-slate-400 hover:text-slate-200 underline cursor-pointer"
+                        >
+                          ตามก๊วน ({lateFeePerWeek}฿)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditCustomLateFee(0)}
+                          className="text-[8px] text-teal-400 hover:text-teal-300 underline cursor-pointer"
+                        >
+                          0฿ ปลอดค่าปรับ
+                        </button>
+                      </div>
+                    </div>
+                    <input
+                      type="number"
+                      min={0}
+                      step="any"
+                      value={editCustomLateFee}
+                      onChange={(e) => setEditCustomLateFee(e.target.value)}
+                      placeholder={`ค่าปรับเริ่มต้นก๊วน ฿${lateFeePerWeek}`}
+                      className="w-full px-2.5 py-1.5 bg-slate-900 border border-rose-500/40 rounded-lg text-xs text-rose-300 font-mono focus:outline-none focus:border-rose-400"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[9px] text-indigo-400 font-semibold mb-0.5">Discord User ID (สำหรับแท็กเตือน)</label>
+                    <input
+                      type="text"
+                      value={editDiscordUserId}
+                      onChange={(e) => setEditDiscordUserId(e.target.value)}
+                      placeholder="เช่น 123456789012345678"
+                      className="w-full px-2.5 py-1.5 bg-slate-900 border border-indigo-500/40 rounded-lg text-xs text-indigo-300 font-mono focus:outline-none focus:border-indigo-400"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[9px] text-indigo-400 font-semibold mb-0.5">Discord Username (ชื่อแสดงผล)</label>
+                    <input
+                      type="text"
+                      value={editDiscordUsername}
+                      onChange={(e) => setEditDiscordUsername(e.target.value)}
+                      placeholder="เช่น somchai_ja"
+                      className="w-full px-2.5 py-1.5 bg-slate-900 border border-indigo-500/40 rounded-lg text-xs text-indigo-300 font-mono focus:outline-none focus:border-indigo-400"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-700/60 font-sans text-xs">
+                  <button
+                    type="button"
+                    onClick={handleCancelEdit}
+                    className="px-3 py-1 text-slate-400 hover:text-slate-200 transition cursor-pointer"
+                  >
+                    ยกเลิก
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSaveEdit(m.id)}
+                    className="px-4 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-lg font-bold transition cursor-pointer shadow-sm"
+                  >
+                    บันทึกข้อมูล
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* Window Card Tile */
+              <div
+                key={m.id}
+                onClick={() => setSelectedMemberId(m.id)}
+                className={`bg-slate-900/95 border rounded-2xl p-3.5 transition-all duration-200 cursor-pointer flex flex-col justify-between group relative overflow-hidden shadow-md hover:shadow-xl ${
+                  m.isPaidFully
+                    ? "border-emerald-500/35 hover:border-emerald-500/70 bg-gradient-to-b from-slate-900 via-slate-900 to-emerald-950/25 hover:shadow-emerald-950/30"
+                    : m.carryover.currentWeekStatus.lateFeeThisWeek > 0
+                    ? "border-rose-500/35 hover:border-rose-500/70 bg-gradient-to-b from-slate-900 via-slate-900 to-rose-950/25 hover:shadow-rose-950/30"
+                    : m.carryover.currentWeekStatus.isLateFeeWaived
+                    ? "border-amber-500/35 hover:border-amber-500/70 bg-gradient-to-b from-slate-900 via-slate-900 to-amber-950/25 hover:shadow-amber-950/30"
+                    : "border-slate-800 hover:border-slate-700 hover:shadow-slate-900/60"
+                }`}
+                title="คลิกเพื่อดูหน้าต่างข้อมูลสมาชิกและประวัติการโอนอย่างละเอียด"
+              >
+                {/* Window Title Bar */}
+                <div className="flex items-center justify-between pb-2 border-b border-slate-800/80 mb-2.5">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-rose-500/60 group-hover:bg-rose-500 transition-colors" />
+                    <span className="w-2 h-2 rounded-full bg-amber-500/60 group-hover:bg-amber-500 transition-colors" />
+                    <span className="w-2 h-2 rounded-full bg-emerald-500/60 group-hover:bg-emerald-500 transition-colors" />
+                    <span className="text-[10px] font-mono text-slate-500 ml-1">#member-{m.id.slice(-4)}</span>
+                  </div>
+
+                  {/* Status Pill in Window Header */}
+                  {m.isPaidFully ? (
+                    <span className="text-[9px] font-sans font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/25 px-2 py-0.5 rounded-full flex items-center gap-0.5 shrink-0">
+                      <UserCheck className="w-3 h-3" /> ครบถ้วน
+                    </span>
+                  ) : m.carryover.currentWeekStatus.lateFeeThisWeek > 0 ? (
+                    <span className="text-[9px] font-sans font-bold text-rose-400 bg-rose-500/15 border border-rose-500/30 px-2 py-0.5 rounded-full flex items-center gap-0.5 shrink-0">
+                      <AlertTriangle className="w-3 h-3 text-rose-400" /> ค้าง + ปรับ
+                    </span>
+                  ) : m.carryover.currentWeekStatus.isLateFeeWaived ? (
+                    <span className="text-[9px] font-sans font-bold text-teal-400 bg-teal-500/15 border border-teal-500/30 px-2 py-0.5 rounded-full flex items-center gap-0.5 shrink-0">
+                      <ShieldCheck className="w-3 h-3 text-teal-400" /> ยกเว้นค่าปรับ
+                    </span>
+                  ) : (
+                    <span className="text-[9px] font-sans font-bold text-amber-400 bg-amber-500/10 border border-amber-500/25 px-2 py-0.5 rounded-full flex items-center gap-0.5 shrink-0">
+                      <AlertTriangle className="w-3 h-3" /> ค้างชำระ
+                    </span>
+                  )}
+                </div>
+
+                {/* Window Body: Member Info */}
+                <div className="space-y-2.5">
+                  <div className="flex items-center gap-2.5">
+                    <div
+                      className={`w-10 h-10 rounded-2xl flex items-center justify-center font-bold font-sans text-sm flex-shrink-0 transition-all group-hover:scale-105 shadow-inner ${
+                        m.isPaidFully
+                          ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shadow-emerald-950/40"
+                          : m.carryover.currentWeekStatus.lateFeeThisWeek > 0
+                          ? "bg-rose-500/15 text-rose-400 border border-rose-500/30 shadow-rose-950/40"
+                          : "bg-slate-800 text-slate-300 border border-slate-700 shadow-slate-950/40"
+                      }`}
+                    >
+                      {m.id === profileMemberId ? (profileEmoji || "🦊") : m.nickname.charAt(0).toUpperCase()}
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <p className="text-sm font-bold text-slate-100 truncate group-hover:text-emerald-400 transition">
+                          {m.nickname}
+                        </p>
+                        {m.id === profileMemberId && (
+                          <span className="text-[9px] font-sans font-semibold text-teal-400 bg-teal-500/10 border border-teal-500/25 px-1.5 py-0.2 rounded shrink-0">
+                            คุณ
+                          </span>
+                        )}
+                        {m.discordUserId && (
+                          <span className="text-[9px] font-sans text-indigo-300 bg-indigo-500/15 border border-indigo-500/30 px-1.5 py-0.2 rounded shrink-0 flex items-center gap-0.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" />
+                            @{m.discordUsername || "Discord"}
+                          </span>
+                        )}
+                      </div>
+                      {m.name !== m.nickname && (
+                        <p className="text-[10px] text-slate-400 truncate">{m.name}</p>
+                      )}
+                    </div>
+
+                    {isLeader && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleStartEdit(m);
+                        }}
+                        className="p-1.5 text-slate-500 hover:text-emerald-400 rounded-lg hover:bg-slate-800 transition cursor-pointer shrink-0"
+                        title="แก้ไขข้อมูลสมาชิก"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Financial Progress Box */}
+                  <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800/80 space-y-1.5">
+                    <div className="flex items-center justify-between text-[11px] font-mono">
+                      <span className="text-slate-400">สัปดาห์นี้:</span>
+                      <span className={`font-bold ${m.isPaidFully ? "text-emerald-400" : "text-amber-300"}`}>
+                        ฿{m.carryover.currentWeekStatus.available.toLocaleString("th-TH")} / ฿{targetAmountPerMember.toLocaleString("th-TH")}
+                      </span>
+                    </div>
+
+                    {/* Progress Bar */}
+                    <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                      <div
+                        className={`h-full transition-all duration-300 rounded-full ${
+                          m.isPaidFully
+                            ? "bg-emerald-400"
+                            : m.carryover.currentWeekStatus.available > 0
+                            ? "bg-amber-400"
+                            : "bg-slate-700"
+                        }`}
+                        style={{
+                          width: `${Math.min(100, Math.max(0, (m.carryover.currentWeekStatus.available / (targetAmountPerMember || 1)) * 100))}%`,
+                        }}
+                      />
+                    </div>
+
+                    {/* Overdue / Fine detail text */}
+                    {m.carryover.currentWeekStatus.lateFeeThisWeek > 0 && !m.isPaidFully ? (
+                      <div className="flex items-center justify-between text-[10px] text-rose-300 font-sans pt-0.5">
+                        <span>ค้างจ่ายรวมค่าปรับ:</span>
+                        <span className="font-bold text-rose-400 font-mono">
+                          ฿{m.carryover.currentWeekStatus.deficit.toLocaleString("th-TH")} (+฿{m.carryover.currentWeekStatus.lateFeeThisWeek})
+                        </span>
+                      </div>
+                    ) : m.carryover.currentWeekStatus.isLateFeeWaived && !m.isPaidFully ? (
+                      <div className="flex items-center justify-between text-[10px] text-teal-300 font-sans pt-0.5">
+                        <span className="flex items-center gap-1">
+                          <ShieldCheck className="w-3 h-3 text-teal-400" /> ละเว้นค่าปรับ:
+                        </span>
+                        <span className="font-bold text-amber-300 font-mono">
+                          ค้าง ฿{m.carryover.currentWeekStatus.deficit.toLocaleString("th-TH")}
+                        </span>
+                      </div>
+                    ) : !m.isPaidFully ? (
+                      <div className="flex items-center justify-between text-[10px] text-amber-300 font-sans pt-0.5">
+                        <span>ยอดค้าง:</span>
+                        <span className="font-bold font-mono">
+                          ฿{m.carryover.currentWeekStatus.deficit.toLocaleString("th-TH")}
+                        </span>
+                      </div>
+                    ) : null}
+                  </div>
+
+                  {/* Badges: Custom Late Fee & Cumulative Paid */}
+                  <div className="flex items-center justify-between gap-1 text-[10px] pt-0.5 flex-wrap">
+                    <span className="text-slate-400 font-mono">
+                      สะสม: <strong className="text-slate-200">฿{m.totalPaid.toLocaleString("th-TH")}</strong>
+                    </span>
+
+                    {m.customLateFee === 0 ? (
+                      <span className="text-[9px] text-teal-400 bg-teal-500/10 border border-teal-500/25 px-1.5 py-0.5 rounded font-medium">
+                        🛡️ ปลอดค่าปรับ
+                      </span>
+                    ) : m.customLateFee !== undefined && m.customLateFee > 0 ? (
+                      <span className="text-[9px] text-rose-400 bg-rose-500/10 border border-rose-500/25 px-1.5 py-0.5 rounded font-medium">
+                        ⚡ ปรับ ฿{m.customLateFee}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+
+                {/* Window Footer: Action hint */}
+                <div className="mt-3 pt-2 border-t border-slate-800/60 flex items-center justify-between text-[10px] text-slate-500 font-sans group-hover:text-emerald-400 transition-colors">
+                  <span>ดูหน้าต่างข้อมูล & ประวัติสลิป</span>
+                  <ChevronRight className="w-3.5 h-3.5 transform group-hover:translate-x-0.5 transition-transform" />
+                </div>
+              </div>
+            )
+          ))}
         </div>
       ) : (
         <div className="space-y-2 max-h-96 overflow-y-auto pr-1" id="members-list">
@@ -611,6 +973,17 @@ export default function MemberManager({
                         (รวมค่าปรับ +฿{m.carryover.currentWeekStatus.lateFeeThisWeek.toLocaleString("th-TH")})
                       </span>
                     </div>
+                  ) : m.carryover.currentWeekStatus.isLateFeeWaived && !m.isPaidFully ? (
+                    <div className="flex flex-col items-end gap-0.5">
+                      <span className="text-[9px] font-sans font-bold text-amber-400 bg-amber-500/15 border border-amber-500/30 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                        <AlertTriangle className="w-3 h-3 text-amber-400" />
+                        <span>ค้าง ฿{m.carryover.currentWeekStatus.deficit.toLocaleString("th-TH")}</span>
+                      </span>
+                      <span className="text-[8px] text-emerald-400 font-sans flex items-center gap-0.5">
+                        <ShieldCheck className="w-2.5 h-2.5 text-emerald-400" />
+                        <span>ละเว้นค่าปรับ (ค้างสัปดาห์ที่ {m.carryover.currentWeekStatus.overdueWeekNumber}/{m.carryover.currentWeekStatus.graceWeeks})</span>
+                      </span>
+                    </div>
                   ) : m.isPartial ? (
                     <span className="text-[9px] font-sans font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-full flex items-center gap-0.5">
                       <AlertTriangle className="w-3 h-3" /> ค้าง ฿{m.carryover.currentWeekStatus.deficit.toLocaleString("th-TH")}
@@ -644,6 +1017,7 @@ export default function MemberManager({
         </div>
       )}
 
+      )
       {/* Memory Hint Footnote */}
       <div className="mt-4 bg-emerald-500/5 border border-emerald-500/10 rounded-2xl p-3 flex items-start gap-2 text-[10px] text-slate-400 leading-relaxed font-sans">
         <Sparkles className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
@@ -765,6 +1139,13 @@ export default function MemberManager({
                     </div>
                   )}
 
+                  {selectedMember.carryover.currentWeekStatus.isLateFeeWaived && !selectedMember.isPaidFully && (
+                    <div className="bg-emerald-500/10 border border-emerald-500/25 text-emerald-300 text-xs py-2 px-3 rounded-xl flex items-center gap-1.5 justify-center font-semibold">
+                      <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span>🛡️ สัปดาห์นี้ได้รับการละเว้นค่าปรับ (ค้างสัปดาห์ที่ {selectedMember.carryover.currentWeekStatus.overdueWeekNumber} จากสิทธิ์ละเว้น {selectedMember.carryover.currentWeekStatus.graceWeeks} สัปดาห์)</span>
+                    </div>
+                  )}
+
                   {selectedMember.isPaidFully ? (
                     <div className="flex flex-col gap-1.5">
                       <div className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs py-2 px-3 rounded-xl flex items-center gap-1.5 justify-center font-semibold">
@@ -838,13 +1219,23 @@ export default function MemberManager({
                             </div>
                           </div>
 
-                          {week.lateFee > 0 && week.rawPaid < week.lateFee && (
+                          {week.lateFee > 0 && (
                             <div className="bg-rose-500/10 border border-rose-500/25 text-rose-300 text-[10px] py-1 px-2 rounded-lg flex items-center justify-between">
                               <span className="flex items-center gap-1 font-semibold">
                                 <AlertTriangle className="w-3 h-3 text-rose-400" />
                                 <span>ค่าปรับจ่ายล่าช้าในสัปดาห์นี้:</span>
                               </span>
                               <strong className="font-mono text-rose-400">+฿{week.lateFee}</strong>
+                            </div>
+                          )}
+
+                          {week.isLateFeeWaived && (
+                            <div className="bg-emerald-500/10 border border-emerald-500/25 text-emerald-300 text-[10px] py-1 px-2 rounded-lg flex items-center justify-between">
+                              <span className="flex items-center gap-1 font-semibold">
+                                <ShieldCheck className="w-3 h-3 text-emerald-400" />
+                                <span>ได้รับการละเว้นค่าปรับ (ค้างสัปดาห์ที่ {week.overdueWeekNumber || 1}):</span>
+                              </span>
+                              <strong className="font-mono text-emerald-400">🛡️ ยกเว้น (฿{week.waivedLateFeeAmount || 0})</strong>
                             </div>
                           )}
 

@@ -3,6 +3,7 @@ export interface Group {
   name: string;
   targetAmountPerMember: number;
   lateFeePerWeek?: number; // ค่าปรับจ่ายล่าช้า (บาท / สัปดาห์)
+  lateFeeGraceWeeks?: number; // จำนวนสัปดาห์ที่ละเว้นค่าปรับ (เช่น 1 = ละเว้น 1 สัปดาห์แรกที่ค้าง จะเริ่มคิดค่าปรับสัปดาห์ที่ 2)
   lateFeeNote?: string; // เงื่อนไข/คำอธิบายค่าปรับจ่ายช้า
   description?: string;
   passcode?: string; // Optional passcode to join and see the group
@@ -40,6 +41,7 @@ export interface Member {
   createdAt: string;
   initialCarryover?: number; // ยอดค้าง/ยอดสมทบยกมาตั้งต้น (ติดลบคือค้างจ่าย บวกคือจ่ายเกินทบมา)
   customLateFee?: number; // ค่าปรับเฉพาะบุคคล (0 = ไม่ปรับ หรือกำหนดตัวเลขที่ต้องการ)
+  customLateFeeGraceWeeks?: number; // สิทธิ์ละเว้นค่าปรับเฉพาะบุคคล (สัปดาห์)
   manualFine?: number; // ค่าปรับที่แอดมินสั่งปรับทันทีในสัปดาห์ปัจจุบัน (บาท - ปรับได้เลยไม่ต้องรอ)
   discordUserId?: string; // รหัส Discord User ID สำหรับแท็ก <@userId>
   discordUsername?: string; // ชื่อบัญชี Discord ของสมาชิก เช่น boy_123

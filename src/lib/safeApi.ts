@@ -205,7 +205,9 @@ export function createClientOverdueEmbed(
       group.createdAt,
       lateFeePerWeek,
       member.initialCarryover || 0,
-      member.customLateFee
+      member.customLateFee,
+      group.lateFeeGraceWeeks || 0,
+      member.customLateFeeGraceWeeks
     );
 
     const weeksCount = calc.weeksHistory.length;
@@ -216,6 +218,7 @@ export function createClientOverdueEmbed(
     let rawPaid = 0;
     let totalLateFee = 0;
     let carriedOut = 0;
+    let isLateFeeWaived = false;
 
     if (isPrevious && weeksCount >= 2) {
       targetWeekData = calc.weeksHistory[weeksCount - 2];
@@ -224,6 +227,7 @@ export function createClientOverdueEmbed(
       rawPaid = targetWeekData.rawPaid || 0;
       carriedOut = targetWeekData.carriedOut || 0;
       totalLateFee = targetWeekData.lateFee || 0;
+      isLateFeeWaived = targetWeekData.isLateFeeWaived || false;
     } else {
       targetWeekData = calc.weeksHistory[weeksCount - 1];
       deficit = calc.currentWeekStatus.deficit || 0;
@@ -231,6 +235,7 @@ export function createClientOverdueEmbed(
       rawPaid = calc.currentWeekStatus.rawPaidThisWeek || 0;
       carriedOut = calc.currentWeekStatus.carriedOut || 0;
       totalLateFee = calc.currentWeekStatus.lateFeeThisWeek || 0;
+      isLateFeeWaived = calc.currentWeekStatus.isLateFeeWaived || false;
     }
 
     return {
@@ -240,6 +245,7 @@ export function createClientOverdueEmbed(
       rawPaid,
       carriedOut,
       totalLateFee,
+      isLateFeeWaived,
       targetWeekData,
     };
   });
@@ -268,7 +274,11 @@ export function createClientOverdueEmbed(
           : s.member.discordUsername ? ` (@${s.member.discordUsername})` : "";
         const namePart = s.member.name && s.member.name !== s.member.nickname ? ` (${s.member.name})` : "";
         const labelText = s.totalLateFee > 0 ? "ค้างจ่าย" : "ค้าง";
-        const finePart = s.totalLateFee > 0 ? ` (รวมค่าปรับ +฿${s.totalLateFee.toLocaleString("th-TH")})` : "";
+        const finePart = s.totalLateFee > 0
+          ? ` (รวมค่าปรับ +฿${s.totalLateFee.toLocaleString("th-TH")})`
+          : s.isLateFeeWaived
+          ? " (🛡️ สิทธิ์ละเว้นค่าปรับ)"
+          : "";
         const paidPart = s.rawPaid > 0 ? ` • โอนแล้ว ฿${s.rawPaid.toLocaleString("th-TH")}` : "";
         return `${idx + 1}. 🔴 **${s.member.nickname}**${discordTag}${namePart}: **${labelText} ฿${s.deficit.toLocaleString("th-TH")}**${finePart}${paidPart}`;
       })
@@ -292,10 +302,11 @@ export function createClientOverdueEmbed(
 
   const embedColor = unpaidList.length > 0 ? 0xef4444 : 0x10b981;
   const cycleDetails = targetCycleLabel ? `\n⏰ ช่วงเวลารอบนี้: **${targetCycleLabel}**` : "\n⏰ ตัดรอบ: **ทุกวันจันทร์ เวลา 00:00 น.**";
+  const graceNote = (group.lateFeeGraceWeeks ?? 0) > 0 ? ` • ละเว้น ${group.lateFeeGraceWeeks} สัปดาห์แรกที่ค้าง` : "";
 
   return {
     title: isPrevious ? `📋 สรุปสถานะการโอนเงิน (อาทิตย์ก่อน): ${group.name}` : `📋 สรุปสถานะการโอนเงิน (รอบปัจจุบัน): ${group.name}`,
-    description: `📅 ${isPrevious ? "รอบอาทิตย์ก่อน" : "รอบสัปดาห์ปัจจุบัน"}: **${targetWeekLabel}**${cycleDetails}\n🎯 เป้าหมายคนละ: **฿${targetPerMember.toLocaleString("th-TH")}**${lateFeePerWeek > 0 ? ` (ค่าปรับจ่ายช้า ฿${lateFeePerWeek.toLocaleString("th-TH")}/สัปดาห์)` : ""}\n💰 ยอดเงินรวมกองกลางทั้งหมด: **฿${totalFundBalance.toLocaleString("th-TH")}**`,
+    description: `📅 ${isPrevious ? "รอบอาทิตย์ก่อน" : "รอบสัปดาห์ปัจจุบัน"}: **${targetWeekLabel}**${cycleDetails}\n🎯 เป้าหมายคนละ: **฿${targetPerMember.toLocaleString("th-TH")}**${lateFeePerWeek > 0 ? ` (ค่าปรับจ่ายช้า ฿${lateFeePerWeek.toLocaleString("th-TH")}/สัปดาห์${graceNote})` : ""}\n💰 ยอดเงินรวมกองกลางทั้งหมด: **฿${totalFundBalance.toLocaleString("th-TH")}**`,
     color: embedColor,
     fields: [
       {

@@ -54,7 +54,9 @@ export function buildCheckEmbed(
     group.createdAt,
     lateFeePerWeek,
     members[0].initialCarryover || 0,
-    members[0].customLateFee
+    members[0].customLateFee,
+    group.lateFeeGraceWeeks || 0,
+    members[0].customLateFeeGraceWeeks
   );
 
   if (isPrevious && firstMemberCalc.weeksHistory.length < 2) {
@@ -85,7 +87,9 @@ export function buildCheckEmbed(
       group.createdAt,
       lateFeePerWeek,
       member.initialCarryover || 0,
-      member.customLateFee
+      member.customLateFee,
+      group.lateFeeGraceWeeks || 0,
+      member.customLateFeeGraceWeeks
     );
 
     const weeksCount = calc.weeksHistory.length;
@@ -337,7 +341,9 @@ export function buildMemberPersonalStatusEmbed(
     group.createdAt,
     lateFeePerWeek,
     member.initialCarryover || 0,
-    member.customLateFee
+    member.customLateFee,
+    group.lateFeeGraceWeeks || 0,
+    member.customLateFeeGraceWeeks
   );
 
   const curStatus = calc.currentWeekStatus;

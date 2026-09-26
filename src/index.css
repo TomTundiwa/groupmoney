@@ -4,23 +4,188 @@
 @theme {
   --font-sans: "Anuphan", "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  --color-slate-950: var(--theme-slate-950);
+  --color-slate-900: var(--theme-slate-900);
+  --color-slate-850: var(--theme-slate-850);
+  --color-slate-800: var(--theme-slate-800);
+  --color-slate-700: var(--theme-slate-700);
+  --color-slate-600: var(--theme-slate-600);
+  --color-slate-500: var(--theme-slate-500);
+  --color-slate-400: var(--theme-slate-400);
+  --color-slate-300: var(--theme-slate-300);
+  --color-slate-200: var(--theme-slate-200);
+  --color-slate-100: var(--theme-slate-100);
+
+  --color-emerald-400: var(--theme-emerald-400);
+  --color-emerald-500: var(--theme-emerald-500);
+  --color-emerald-600: var(--theme-emerald-600);
+
+  --color-amber-400: var(--theme-amber-400);
+  --color-amber-500: var(--theme-amber-500);
 }
 
-/* Custom scrollbar adjustments for a cleaner dark design */
+/* ========================================================
+   Theme Presets: Modern, Inviting, Comfortable & Aesthetic
+   ======================================================== */
+
+/* 1. Default: Modern Fresh Mint & Deep Slate (สบายตา ทันสมัย นุ่มนวล) */
+:root,
+[data-theme="mint"] {
+  --theme-slate-950: #0b111e;
+  --theme-slate-900: #111a2e;
+  --theme-slate-850: #17243e;
+  --theme-slate-800: #1d2e4e;
+  --theme-slate-700: #29406b;
+  --theme-slate-600: #446194;
+  --theme-slate-500: #7492c3;
+  --theme-slate-400: #9cb5dc;
+  --theme-slate-300: #cde0f8;
+  --theme-slate-200: #e9f2fd;
+  --theme-slate-100: #f8fafc;
+
+  --theme-emerald-400: #34d399;
+  --theme-emerald-500: #10b981;
+  --theme-emerald-600: #059669;
+
+  --theme-amber-400: #fbbf24;
+  --theme-amber-500: #f59e0b;
+
+  --theme-ambient-glow: rgba(16, 185, 129, 0.12);
+  --theme-body-bg: #0b111e;
+}
+
+/* 2. Clean Minimal Light (สว่าง คลีน มินิมอล สบายตา อ่านง่ายที่สุด) */
+[data-theme="light"] {
+  --theme-slate-950: #f8fafc;
+  --theme-slate-900: #ffffff;
+  --theme-slate-850: #f1f5f9;
+  --theme-slate-800: #f1f5f9;
+  --theme-slate-700: #e2e8f0;
+  --theme-slate-600: #94a3b8;
+  --theme-slate-500: #64748b;
+  --theme-slate-400: #475569;
+  --theme-slate-300: #334155;
+  --theme-slate-200: #1e293b;
+  --theme-slate-100: #0f172a;
+
+  --theme-emerald-400: #059669;
+  --theme-emerald-500: #10b981;
+  --theme-emerald-600: #047857;
+
+  --theme-amber-400: #d97706;
+  --theme-amber-500: #b45309;
+
+  --theme-ambient-glow: rgba(16, 185, 129, 0.07);
+  --theme-body-bg: #f8fafc;
+}
+
+/* 3. Midnight Ocean (มิดไนท์ โอเชี่ยน น้ำเงินเข้ม สุขุม ลุ่มลึก พรีเมียม) */
+[data-theme="ocean"] {
+  --theme-slate-950: #060e1b;
+  --theme-slate-900: #0c182e;
+  --theme-slate-850: #122444;
+  --theme-slate-800: #172d54;
+  --theme-slate-700: #234278;
+  --theme-slate-600: #3b62a3;
+  --theme-slate-500: #6991cd;
+  --theme-slate-400: #95b6e6;
+  --theme-slate-300: #c9ddf8;
+  --theme-slate-200: #eaf2fd;
+  --theme-slate-100: #ffffff;
+
+  --theme-emerald-400: #22d3ee;
+  --theme-emerald-500: #06b6d4;
+  --theme-emerald-600: #0891b2;
+
+  --theme-amber-400: #38bdf8;
+  --theme-amber-500: #0ea5e9;
+
+  --theme-ambient-glow: rgba(6, 182, 212, 0.12);
+  --theme-body-bg: #060e1b;
+}
+
+/* 4. Warm Cozy Latte & Forest (อบอุ่น นุ่มนวล ละมุน สไตล์คาเฟ่) */
+[data-theme="latte"] {
+  --theme-slate-950: #fbf9f5;
+  --theme-slate-900: #ffffff;
+  --theme-slate-850: #f4efe6;
+  --theme-slate-800: #f3ede3;
+  --theme-slate-700: #e6ddce;
+  --theme-slate-600: #a59784;
+  --theme-slate-500: #7a6e5b;
+  --theme-slate-400: #574c3d;
+  --theme-slate-300: #3d3429;
+  --theme-slate-200: #252019;
+  --theme-slate-100: #15110d;
+
+  --theme-emerald-400: #16a34a;
+  --theme-emerald-500: #15803d;
+  --theme-emerald-600: #166534;
+
+  --theme-amber-400: #d97706;
+  --theme-amber-500: #b45309;
+
+  --theme-ambient-glow: rgba(217, 119, 6, 0.06);
+  --theme-body-bg: #fbf9f5;
+}
+
+/* 5. Cyber Violet & Indigo (ล้ำสมัย เทคโนโลยี สไตล์ฟินเทคพรีเมียม) */
+[data-theme="indigo"] {
+  --theme-slate-950: #0b0c1c;
+  --theme-slate-900: #12142d;
+  --theme-slate-850: #191c3d;
+  --theme-slate-800: #21254f;
+  --theme-slate-700: #303770;
+  --theme-slate-600: #4e59a4;
+  --theme-slate-500: #7a87cc;
+  --theme-slate-400: #a3aee5;
+  --theme-slate-300: #ced5f9;
+  --theme-slate-200: #eceffe;
+  --theme-slate-100: #ffffff;
+
+  --theme-emerald-400: #818cf8;
+  --theme-emerald-500: #6366f1;
+  --theme-emerald-600: #4f46e5;
+
+  --theme-amber-400: #a78bfa;
+  --theme-amber-500: #8b5cf6;
+
+  --theme-ambient-glow: rgba(99, 102, 241, 0.12);
+  --theme-body-bg: #0b0c1c;
+}
+
+/* Global Aesthetics & Ambient Lighting */
+html, body {
+  background-color: var(--theme-slate-950);
+  color: var(--theme-slate-100);
+  background-image: radial-gradient(circle 800px at 50% -100px, var(--theme-ambient-glow), transparent 75%);
+  background-attachment: fixed;
+  background-repeat: no-repeat;
+  transition: background-color 0.25s ease, color 0.25s ease;
+  min-height: 100vh;
+}
+
+/* Custom scrollbar adjustments */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: rgba(15, 23, 42, 0.6);
+  background: var(--theme-slate-950);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(148, 163, 184, 0.3);
+  background: var(--theme-slate-700);
   border-radius: 99px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(148, 163, 184, 0.5);
+  background: var(--theme-slate-600);
+}
+
+::selection {
+  background: rgba(16, 185, 129, 0.35);
+  color: inherit;
 }

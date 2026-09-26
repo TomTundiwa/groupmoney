@@ -1,11 +1,12 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { Group, Member, Transaction, ParsedSlipResult } from "./types";
 import Header from "./components/Header";
 import WeeklyChart from "./components/WeeklyChart";
 import SlipUploader from "./components/SlipUploader";
 import MemberManager from "./components/MemberManager";
 import TransactionHistory from "./components/TransactionHistory";
-import { HelpCircle, Landmark, Sparkles, ShieldAlert, ShieldCheck, Trash2, Key, Share2, Copy, Check, Settings, Crown, Users, Pencil, AlertTriangle, RotateCcw, Radio, Send, Bell, BellRing, Bot, Terminal, ExternalLink, MessageSquareCode, Eye, Play, Clock, Zap, X } from "lucide-react";
+import { AppTheme } from "./components/ThemeSelectorModal";
+import { HelpCircle, Landmark, Sparkles, ShieldAlert, ShieldCheck, Trash2, Key, Share2, Copy, Check, Settings, Crown, Users, Pencil, AlertTriangle, RotateCcw, Radio, Send, Bell, BellRing, Bot, Terminal, ExternalLink, MessageSquareCode, Eye, Play, Clock, Zap, X, Receipt, BarChart3, ArrowRight, ChevronRight, Layers } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { collection, doc, getDoc, setDoc, deleteDoc, updateDoc, onSnapshot, writeBatch, deleteField, addDoc } from "firebase/firestore";
 import { db } from "./lib/firebase";
@@ -44,9 +45,68 @@ export default function App() {
   const [profileEmoji, setProfileEmoji] = useState<string>(() => localStorage.getItem("sb_profile_emoji") || "🦊");
   const [profileMemberId, setProfileMemberId] = useState<string>(() => localStorage.getItem("sb_profile_member_id") || "");
 
+  // Color Theme State: "mint" | "light" | "ocean" | "latte" | "indigo"
+  const [currentTheme, setCurrentTheme] = useState<AppTheme>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("slipbuddy_theme");
+      if (saved && ["mint", "light", "ocean", "latte", "indigo"].includes(saved)) {
+        return saved as AppTheme;
+      }
+    }
+    return "mint";
+  });
+
+  const handleChangeTheme = (theme: AppTheme) => {
+    setCurrentTheme(theme);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("slipbuddy_theme", theme);
+      document.documentElement.setAttribute("data-theme", theme);
+    }
+  };
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", currentTheme);
+  }, [currentTheme]);
+
   const [activeGroupId, setActiveGroupId] = useState<string>(() => {
     return localStorage.getItem("sb_active_id") || "";
   });
+
+  // Page navigation state: "uploader" | "transactions" | "members" | "overview"
+  const [activePage, setActivePage] = useState<"uploader" | "transactions" | "members" | "overview">(() => {
+    if (typeof window !== "undefined") {
+      const hash = window.location.hash.replace("#", "");
+      if (["uploader", "transactions", "members", "overview"].includes(hash)) {
+        return hash as any;
+      }
+      const saved = localStorage.getItem("sb_active_page");
+      if (["uploader", "transactions", "members", "overview"].includes(saved || "")) {
+        return saved as any;
+      }
+    }
+    return "uploader";
+  });
+
+  const handleSelectPage = (page: "uploader" | "transactions" | "members" | "overview") => {
+    setActivePage(page);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("sb_active_page", page);
+      try {
+        window.location.hash = page;
+      } catch {}
+    }
+  };
+
+  useEffect(() => {
+    const handleHash = () => {
+      const hash = window.location.hash.replace("#", "");
+      if (["uploader", "transactions", "members", "overview"].includes(hash)) {
+        setActivePage(hash as any);
+      }
+    };
+    window.addEventListener("hashchange", handleHash);
+    return () => window.removeEventListener("hashchange", handleHash);
+  }, []);
   const [createdGroupIds, setCreatedGroupIds] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem("sb_created_groups");
@@ -86,6 +146,7 @@ export default function App() {
   const [editGroupError, setEditGroupError] = useState("");
   const [editGroupSuccess, setEditGroupSuccess] = useState(false);
   const [editLateFeePerWeek, setEditLateFeePerWeek] = useState<number>(0);
+  const [editLateFeeGraceWeeks, setEditLateFeeGraceWeeks] = useState<number>(0);
   const [editLateFeeNote, setEditLateFeeNote] = useState("");
   const [editLeaderPasscode, setEditLeaderPasscode] = useState("");
   const [editCoLeadersInput, setEditCoLeadersInput] = useState("");
@@ -702,7 +763,7 @@ export default function App() {
     }
   };
 
-  const handleUpdateGroupLateFee = async (lateFeePerWeek: number, lateFeeNote: string) => {
+  const handleUpdateGroupLateFee = async (lateFeePerWeek: number, lateFeeNote: string, lateFeeGraceWeeks: number = 0) => {
     if (!activeGroupId) return;
     if (!isLeader) {
       alert("เฉพาะหัวหน้าก๊วนเท่านั้นที่สามารถแก้ไขค่าปรับของกลุ่มได้");
@@ -712,6 +773,7 @@ export default function App() {
       await updateDoc(doc(db, "groups", activeGroupId), {
         lateFeePerWeek,
         lateFeeNote,
+        lateFeeGraceWeeks,
       });
     } catch (err) {
       console.error("Error updating group late fee:", err);
@@ -735,7 +797,9 @@ export default function App() {
           activeGroup?.createdAt || new Date().toISOString(),
           activeGroup?.lateFeePerWeek || 0,
           member.initialCarryover || 0,
-          member.customLateFee
+          member.customLateFee,
+          activeGroup?.lateFeeGraceWeeks || 0,
+          member.customLateFeeGraceWeeks
         );
         return sum + carry.totalPaidAllTime;
       }, 0);
@@ -1290,6 +1354,7 @@ export default function App() {
           name: editGroupName.trim(),
           targetAmountPerMember: editTargetAmount,
           lateFeePerWeek: editLateFeePerWeek,
+          lateFeeGraceWeeks: editLateFeeGraceWeeks,
           lateFeeNote: editLateFeeNote.trim(),
           description: editGroupDesc.trim(),
           passcode: editGroupPasscode.trim(),
@@ -1702,6 +1767,7 @@ export default function App() {
     setEditGroupName(group.name);
     setEditTargetAmount(group.targetAmountPerMember);
     setEditLateFeePerWeek(group.lateFeePerWeek || 0);
+    setEditLateFeeGraceWeeks(group.lateFeeGraceWeeks ?? 0);
     setEditLateFeeNote(group.lateFeeNote || "");
     setEditGroupDesc(group.description || "");
     setEditGroupPasscode(group.passcode || "");
@@ -1755,6 +1821,37 @@ export default function App() {
 
   const activeGroup = groups.find((g) => g.id === activeGroupId);
 
+  // Computed summary stats for Overview & Navigation Tabs
+  const totalAmountCollected = activeTransactions.reduce((sum, t) => sum + (t.amount || 0), 0);
+
+  const memberOverdueStats = useMemo(() => {
+    if (!activeGroup) return { totalDebt: 0, overdueMembersCount: 0, fullyPaidCount: 0 };
+    let debt = 0;
+    let overdueCount = 0;
+    let fullyPaid = 0;
+
+    activeMembers.forEach((member) => {
+      const carry = calculateMemberCarryover(
+        member.id,
+        activeTransactions,
+        activeGroup.targetAmountPerMember,
+        activeGroup.createdAt || new Date().toISOString(),
+        activeGroup.lateFeePerWeek || 0,
+        member.initialCarryover || 0,
+        member.customLateFee,
+        activeGroup.lateFeeGraceWeeks || 0
+      );
+      if (carry.currentWeekStatus.deficit > 0) {
+        debt += carry.currentWeekStatus.deficit;
+        overdueCount++;
+      } else {
+        fullyPaid++;
+      }
+    });
+
+    return { totalDebt: debt, overdueMembersCount: overdueCount, fullyPaidCount: fullyPaid };
+  }, [activeMembers, activeTransactions, activeGroup]);
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans" id="app-root">
       {/* Header Stat Board */}
@@ -1768,7 +1865,6 @@ export default function App() {
         members={activeMembers}
         transactions={activeTransactions}
         isLeader={isLeader}
-        onDeleteActiveGroup={handleDeleteActiveGroup}
         createdGroupIds={createdGroupIds}
         deviceId={deviceId}
         onSyncDevice={handleSyncDevice}
@@ -1780,6 +1876,8 @@ export default function App() {
         onUpdateProfile={handleUpdateProfile}
         onOpenGroupSettings={openGroupSettingsModal}
         onUpdateGroupTotalMoney={handleUpdateGroupTotalMoney}
+        currentTheme={currentTheme}
+        onChangeTheme={handleChangeTheme}
       />
 
       {/* Main Content Body */}
@@ -1799,15 +1897,6 @@ export default function App() {
                     <span className="text-[11px] font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full font-bold">
                       เป้าหมาย: ฿{activeGroup.targetAmountPerMember.toLocaleString("th-TH")} / คน
                     </span>
-                    <button
-                      type="button"
-                      onClick={openGroupSettingsModal}
-                      className="flex items-center gap-1.5 text-[11px] font-sans font-bold text-amber-300 hover:text-amber-200 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 hover:border-amber-500/50 px-3 py-1 rounded-full transition cursor-pointer shadow-sm"
-                      title="ตั้งค่าก๊วน ค่าปรับจ่ายล่าช้า และจัดการสิทธิ์หัวหน้ากลุ่ม"
-                    >
-                      <Settings className="w-3.5 h-3.5 text-amber-400 animate-spin-slow" />
-                      <span>⚙️ ตั้งค่า / แอดหัวหน้ากลุ่ม</span>
-                    </button>
                   </div>
 
                   <p className="text-xs text-slate-400 leading-relaxed max-w-2xl font-sans">
@@ -1866,15 +1955,6 @@ export default function App() {
                           <Settings className="w-3.5 h-3.5 text-amber-400" />
                           <span>⚙️ ตั้งค่า / แอดหัวหน้ากลุ่ม</span>
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => setShowMainDeleteConfirm(true)}
-                          className="flex items-center gap-2 px-3.5 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/20 hover:border-rose-500/40 rounded-xl text-xs font-sans font-bold transition duration-200 cursor-pointer shadow-sm"
-                          title="ลบเซิฟเวอร์กลุ่มสะสมเงินนี้อย่างถาวร"
-                        >
-                          <Trash2 className="w-3.5 h-3.5 text-rose-400" />
-                          <span>ลบก๊วนนี้</span>
-                        </button>
                       </div>
                     </div>
                   ) : (
@@ -1901,20 +1981,153 @@ export default function App() {
               </div>
             </div>
 
-            {/* Weekly Analytics Section */}
-            <WeeklyChart transactions={activeTransactions} members={activeMembers} />
+            {/* Page Navigation Bar (แบ่งหน้าชัดเจน ไม่รวมอยู่หน้าเดียวกัน) */}
+            <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-1.5 shadow-lg backdrop-blur-md" id="page-tabs-bar">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => handleSelectPage("uploader")}
+                  className={`flex items-center justify-center gap-2 py-3 px-3 rounded-xl font-sans font-bold text-xs md:text-sm transition-all cursor-pointer ${
+                    activePage === "uploader"
+                      ? "bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20 scale-[1.01]"
+                      : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/80"
+                  }`}
+                  id="tab-btn-uploader"
+                >
+                  <Sparkles className={`w-4 h-4 shrink-0 ${activePage === "uploader" ? "text-slate-950" : "text-emerald-400"}`} />
+                  <span>📸 ตรวจสลิป</span>
+                </button>
 
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-              {/* Slip Scanner Box (Col-span 7) */}
-              <div className="lg:col-span-7 space-y-6">
-                <SlipUploader
-                  members={activeMembers}
-                  onUploadSuccess={handleSlipUploadSuccess}
-                  activeGroupId={activeGroupId}
-                  profileMemberId={profileMemberId}
-                  profileRealName={profileRealName}
-                  profileNickname={profileNickname}
-                />
+                <button
+                  type="button"
+                  onClick={() => handleSelectPage("transactions")}
+                  className={`flex items-center justify-center gap-2 py-3 px-3 rounded-xl font-sans font-bold text-xs md:text-sm transition-all cursor-pointer ${
+                    activePage === "transactions"
+                      ? "bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20 scale-[1.01]"
+                      : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/80"
+                  }`}
+                  id="tab-btn-transactions"
+                >
+                  <Receipt className={`w-4 h-4 shrink-0 ${activePage === "transactions" ? "text-slate-950" : "text-emerald-400"}`} />
+                  <span>🧾 ประวัติการโอน</span>
+                  <span
+                    className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono font-bold ${
+                      activePage === "transactions"
+                        ? "bg-slate-950/25 text-slate-950"
+                        : "bg-slate-800 text-slate-400 border border-slate-700/50"
+                    }`}
+                  >
+                    {activeTransactions.length}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleSelectPage("members")}
+                  className={`flex items-center justify-center gap-2 py-3 px-3 rounded-xl font-sans font-bold text-xs md:text-sm transition-all cursor-pointer ${
+                    activePage === "members"
+                      ? "bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20 scale-[1.01]"
+                      : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/80"
+                  }`}
+                  id="tab-btn-members"
+                >
+                  <Users className={`w-4 h-4 shrink-0 ${activePage === "members" ? "text-slate-950" : "text-emerald-400"}`} />
+                  <span>👥 สมาชิก & ยอดค้าง</span>
+                  <span
+                    className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono font-bold ${
+                      activePage === "members"
+                        ? "bg-slate-950/25 text-slate-950"
+                        : "bg-slate-800 text-slate-400 border border-slate-700/50"
+                    }`}
+                  >
+                    {activeMembers.length}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleSelectPage("overview")}
+                  className={`flex items-center justify-center gap-2 py-3 px-3 rounded-xl font-sans font-bold text-xs md:text-sm transition-all cursor-pointer ${
+                    activePage === "overview"
+                      ? "bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20 scale-[1.01]"
+                      : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/80"
+                  }`}
+                  id="tab-btn-overview"
+                >
+                  <BarChart3 className={`w-4 h-4 shrink-0 ${activePage === "overview" ? "text-slate-950" : "text-emerald-400"}`} />
+                  <span>📊 ภาพรวม & กราฟ</span>
+                </button>
+              </div>
+            </div>
+
+            {/* หน้า 1: 📸 หน้าตรวจสลิปโอนเงิน (Slip Uploader Page) */}
+            {activePage === "uploader" && (
+              <div className="space-y-6" id="page-uploader">
+                <div className="bg-slate-900/60 border border-slate-800 rounded-3xl p-4 md:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <h3 className="text-base font-bold text-slate-100 flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-emerald-400" />
+                      <span>หน้าตรวจสลิปโอนเงิน (สแกนและบันทึกยอดอัตโนมัติ)</span>
+                    </h3>
+                    <p className="text-xs text-slate-400 leading-relaxed">
+                      อัปโหลดรูปหรือถ่ายภาพสลิปธนาคาร ระบบ AI จะอ่านชื่อผู้โอน ยอดเงิน วันเวลา และจับคู่กับเพื่อนสมาชิกในกลุ่มให้ทันที
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => handleSelectPage("transactions")}
+                      className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-emerald-400 hover:text-emerald-300 border border-slate-700 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-sm"
+                    >
+                      <Receipt className="w-3.5 h-3.5" />
+                      <span>ดูประวัติทั้งหมด ({activeTransactions.length})</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="max-w-4xl mx-auto">
+                  <SlipUploader
+                    members={activeMembers}
+                    onUploadSuccess={handleSlipUploadSuccess}
+                    activeGroupId={activeGroupId}
+                    profileMemberId={profileMemberId}
+                    profileRealName={profileRealName}
+                    profileNickname={profileNickname}
+                    onViewTransactions={() => handleSelectPage("transactions")}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* หน้า 2: 🧾 หน้าประวัติการโอนเงิน (Transaction History Page) */}
+            {activePage === "transactions" && (
+              <div className="space-y-6" id="page-transactions">
+                <div className="bg-slate-900/60 border border-slate-800 rounded-3xl p-4 md:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <h3 className="text-base font-bold text-slate-100 flex items-center gap-2">
+                      <Receipt className="w-4 h-4 text-emerald-400" />
+                      <span>หน้าประวัติการโอนเงิน (Transaction Ledger)</span>
+                    </h3>
+                    <p className="text-xs text-slate-400 leading-relaxed">
+                      รายการสลิปและยอดโอนทั้งหมดของกลุ่มก๊วน จัดเรียงแบบหน้าต่างการ์ด (Window Tiles) หรือตาราง พร้อมค้นหาและแก้ไขได้
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    <div className="px-3 py-1.5 bg-slate-950/80 border border-slate-800 rounded-xl text-xs font-mono">
+                      <span className="text-slate-400 mr-1.5">รวมเงินโอน:</span>
+                      <span className="text-emerald-400 font-bold">฿{totalAmountCollected.toLocaleString("th-TH", { minimumFractionDigits: 2 })}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleSelectPage("uploader")}
+                      className="px-3.5 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl text-xs transition flex items-center gap-1.5 cursor-pointer shadow-md shadow-emerald-500/10"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>สแกนสลิปใหม่</span>
+                    </button>
+                  </div>
+                </div>
+
                 <TransactionHistory
                   transactions={activeTransactions}
                   members={activeMembers}
@@ -1925,14 +2138,45 @@ export default function App() {
                   isGlobalLeader={isLeader}
                 />
               </div>
+            )}
 
-              {/* Members Ledger Box (Col-span 5) */}
-              <div className="lg:col-span-5">
+            {/* หน้า 3: 👥 หน้ารายชื่อสมาชิกและยอดค้างชำระ (Members Page) */}
+            {activePage === "members" && (
+              <div className="space-y-6" id="page-members">
+                <div className="bg-slate-900/60 border border-slate-800 rounded-3xl p-4 md:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <h3 className="text-base font-bold text-slate-100 flex items-center gap-2">
+                      <Users className="w-4 h-4 text-emerald-400" />
+                      <span>หน้ารายชื่อสมาชิก & ยอดค้างชำระ (Members Ledger)</span>
+                    </h3>
+                    <p className="text-xs text-slate-400 leading-relaxed">
+                      ติดตามยอดจ่ายเงินของเพื่อนแต่ละคน ยอดค้างสะสม ค่าปรับ และส่งแจ้งเตือนยอดค้างเข้า Discord ได้ทันที
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    <div className="px-3 py-1.5 bg-slate-950/80 border border-slate-800 rounded-xl text-xs font-mono">
+                      <span className="text-slate-400 mr-1.5">ค้างจ่ายรวม:</span>
+                      <span className={memberOverdueStats.totalDebt > 0 ? "text-rose-400 font-bold" : "text-emerald-400 font-bold"}>
+                        {memberOverdueStats.totalDebt > 0 ? `฿${memberOverdueStats.totalDebt.toLocaleString("th-TH")}` : "ไม่มีค้าง"}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleSelectPage("uploader")}
+                      className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-emerald-400 hover:text-emerald-300 border border-slate-700 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-sm"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>สแกนสลิป</span>
+                    </button>
+                  </div>
+                </div>
+
                 <MemberManager
                   members={activeMembers}
                   transactions={activeTransactions}
                   targetAmountPerMember={activeGroup.targetAmountPerMember}
                   lateFeePerWeek={activeGroup.lateFeePerWeek || 0}
+                  lateFeeGraceWeeks={activeGroup.lateFeeGraceWeeks || 0}
                   lateFeeNote={activeGroup.lateFeeNote || ""}
                   groupCreatedAt={activeGroup.createdAt}
                   onAddMember={handleAddMember}
@@ -1955,7 +2199,106 @@ export default function App() {
                   profileNickname={profileNickname}
                 />
               </div>
-            </div>
+            )}
+
+            {/* หน้า 4: 📊 หน้าภาพรวมและกราฟสถิติ (Overview & Analytics Page) */}
+            {activePage === "overview" && (
+              <div className="space-y-6" id="page-overview">
+                {/* Executive Metric Cards */}
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
+                  <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-sm">
+                    <p className="text-xs text-slate-400 font-sans">🎯 เป้าหมายต่อคน</p>
+                    <p className="text-xl font-bold font-mono text-emerald-400 mt-1">
+                      ฿{activeGroup.targetAmountPerMember.toLocaleString("th-TH")}
+                    </p>
+                    <p className="text-[11px] text-slate-500 mt-1 truncate">
+                      รวมกลุ่ม: ฿{(activeGroup.targetAmountPerMember * activeMembers.length).toLocaleString("th-TH")}
+                    </p>
+                  </div>
+
+                  <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-sm">
+                    <p className="text-xs text-slate-400 font-sans">💰 ยอดเงินโอนสะสมจริง</p>
+                    <p className="text-xl font-bold font-mono text-teal-400 mt-1">
+                      ฿{totalAmountCollected.toLocaleString("th-TH", { minimumFractionDigits: 2 })}
+                    </p>
+                    <p className="text-[11px] text-slate-500 mt-1">{activeTransactions.length} รายการโอน</p>
+                  </div>
+
+                  <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-sm">
+                    <p className="text-xs text-slate-400 font-sans">👥 สมาชิกในกลุ่ม</p>
+                    <p className="text-xl font-bold font-mono text-slate-100 mt-1">
+                      {activeMembers.length} <span className="text-xs font-normal text-slate-400">คน</span>
+                    </p>
+                    <p className="text-[11px] text-emerald-400/90 mt-1">ชำระครบ {memberOverdueStats.fullyPaidCount} คน</p>
+                  </div>
+
+                  <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-sm">
+                    <p className="text-xs text-slate-400 font-sans">⚠️ ยอดคงค้างชำระรวม</p>
+                    <p className={`text-xl font-bold font-mono mt-1 ${memberOverdueStats.totalDebt > 0 ? "text-rose-400" : "text-emerald-400"}`}>
+                      {memberOverdueStats.totalDebt > 0 ? `฿${memberOverdueStats.totalDebt.toLocaleString("th-TH")}` : "ไม่มีค้างชำระ"}
+                    </p>
+                    <p className="text-[11px] text-slate-500 mt-1">ค้างจ่าย {memberOverdueStats.overdueMembersCount} คน</p>
+                  </div>
+                </div>
+
+                {/* Weekly Analytics Section */}
+                <WeeklyChart transactions={activeTransactions} members={activeMembers} />
+
+                {/* Quick Shortcuts to other pages */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => handleSelectPage("uploader")}
+                    className="flex items-center justify-between p-4 bg-slate-900/90 hover:bg-slate-800 border border-slate-800 hover:border-emerald-500/40 rounded-2xl text-left transition group cursor-pointer shadow-sm"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="p-2.5 bg-emerald-500/10 text-emerald-400 rounded-xl group-hover:scale-105 transition">
+                        <Sparkles className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-slate-100 group-hover:text-emerald-300 transition">📸 ตรวจสลิปโอนเงิน</p>
+                        <p className="text-xs text-slate-400">สแกนหรือแนบสลิปใหม่</p>
+                      </div>
+                    </div>
+                    <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-emerald-400 group-hover:translate-x-1 transition" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleSelectPage("transactions")}
+                    className="flex items-center justify-between p-4 bg-slate-900/90 hover:bg-slate-800 border border-slate-800 hover:border-emerald-500/40 rounded-2xl text-left transition group cursor-pointer shadow-sm"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="p-2.5 bg-emerald-500/10 text-emerald-400 rounded-xl group-hover:scale-105 transition">
+                        <Receipt className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-slate-100 group-hover:text-emerald-300 transition">🧾 ประวัติการโอนเงิน</p>
+                        <p className="text-xs text-slate-400">{activeTransactions.length} รายการโอนเงิน</p>
+                      </div>
+                    </div>
+                    <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-emerald-400 group-hover:translate-x-1 transition" />
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleSelectPage("members")}
+                    className="flex items-center justify-between p-4 bg-slate-900/90 hover:bg-slate-800 border border-slate-800 hover:border-emerald-500/40 rounded-2xl text-left transition group cursor-pointer shadow-sm"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="p-2.5 bg-emerald-500/10 text-emerald-400 rounded-xl group-hover:scale-105 transition">
+                        <Users className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-slate-100 group-hover:text-emerald-300 transition">👥 สมาชิก & ยอดค้าง</p>
+                        <p className="text-xs text-slate-400">{activeMembers.length} คนในก๊วน</p>
+                      </div>
+                    </div>
+                    <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-emerald-400 group-hover:translate-x-1 transition" />
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center py-16 text-center max-w-lg mx-auto">
@@ -2080,7 +2423,7 @@ export default function App() {
       {/* Main Delete Confirmation Modal */}
       <AnimatePresence>
         {showMainDeleteConfirm && (
-          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-[60]">
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
@@ -2122,8 +2465,9 @@ export default function App() {
                 <button
                   type="button"
                   onClick={async () => {
-                    await handleDeleteActiveGroup();
                     setShowMainDeleteConfirm(false);
+                    setShowEditGroupModal(false);
+                    await handleDeleteActiveGroup();
                     setShowMainDeleteSuccess(true);
                   }}
                   className="px-5 py-2.5 bg-rose-500 hover:bg-rose-600 text-slate-100 rounded-xl font-bold text-sm transition shadow-lg shadow-rose-950/50 cursor-pointer"
@@ -2139,7 +2483,7 @@ export default function App() {
       {/* Main Delete Success Modal */}
       <AnimatePresence>
         {showMainDeleteSuccess && (
-          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-[60]">
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
@@ -2332,12 +2676,20 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* SECTION 2: Late Payment Fee Rules */}
+                    {/* SECTION 2: Late Payment Fee Rules & Fine Exemption */}
                     <div className="bg-slate-950/60 border border-slate-800/80 rounded-2xl p-4 space-y-4">
-                      <h4 className="text-xs font-bold text-rose-400 uppercase tracking-wider flex items-center gap-1.5">
-                        <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />
-                        <span>2. ตั้งค่าปรับจ่ายล่าช้า (Late Payment Fee)</span>
-                      </h4>
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-xs font-bold text-rose-400 uppercase tracking-wider flex items-center gap-1.5">
+                          <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />
+                          <span>2. ตั้งค่าปรับจ่ายล่าช้า & การละเว้นค่าปรับ</span>
+                        </h4>
+                        {editLateFeeGraceWeeks > 0 && (
+                          <span className="text-[10px] font-sans font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
+                            <ShieldCheck className="w-3 h-3 text-emerald-400" />
+                            ละเว้น {editLateFeeGraceWeeks} สัปดาห์
+                          </span>
+                        )}
+                      </div>
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
@@ -2366,9 +2718,77 @@ export default function App() {
                           />
                         </div>
                       </div>
-                      <p className="text-[11px] text-rose-300/90 leading-relaxed font-medium bg-rose-500/10 border border-rose-500/20 px-3 py-2 rounded-xl">
-                        💡 กฎค่าปรับ: หากจ่ายช้าจะถูกปรับ {editLateFeePerWeek || 0} บาท คิดค่าปรับอัตโนมัติทุกๆวันจันทร์ เวลา 00:00 น.
-                      </p>
+
+                      {/* Fine Exemption / Grace Period System */}
+                      <div className="pt-3 border-t border-slate-850 space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <label className="text-xs font-semibold text-emerald-300 flex items-center gap-1.5">
+                            <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                            <span>🛡️ ระบบละเว้นค่าปรับ (ระบุจำนวนกี่อาทิตย์ / สัปดาห์)</span>
+                          </label>
+                          <span className="text-[11px] font-mono font-bold text-slate-300">
+                            {editLateFeeGraceWeeks === 0
+                              ? "ไม่ละเว้น (ปรับทันที)"
+                              : `ละเว้น ${editLateFeeGraceWeeks} สัปดาห์แรก`}
+                          </span>
+                        </div>
+
+                        {/* Quick Presets for Weeks */}
+                        <div className="flex flex-wrap gap-1.5">
+                          {[
+                            { weeks: 0, label: "0 อาทิตย์ (ไม่ละเว้น)" },
+                            { weeks: 1, label: "1 อาทิตย์ (ผ่อนปรน 1 สัปดาห์)" },
+                            { weeks: 2, label: "2 อาทิตย์" },
+                            { weeks: 3, label: "3 อาทิตย์" },
+                            { weeks: 4, label: "4 อาทิตย์ (1 เดือน)" },
+                          ].map((item) => (
+                            <button
+                              key={item.weeks}
+                              type="button"
+                              onClick={() => setEditLateFeeGraceWeeks(item.weeks)}
+                              className={`px-2.5 py-1 rounded-lg text-xs font-sans transition-all cursor-pointer ${
+                                editLateFeeGraceWeeks === item.weeks
+                                  ? "bg-emerald-500 text-slate-950 font-bold shadow-sm shadow-emerald-950/40"
+                                  : "bg-slate-900 border border-slate-800 text-slate-300 hover:text-slate-100 hover:border-slate-700"
+                              }`}
+                            >
+                              {item.label}
+                            </button>
+                          ))}
+                        </div>
+
+                        <div className="flex items-center gap-2 pt-1">
+                          <input
+                            type="number"
+                            min={0}
+                            max={52}
+                            value={editLateFeeGraceWeeks}
+                            onChange={(e) => setEditLateFeeGraceWeeks(Math.max(0, parseInt(e.target.value) || 0))}
+                            className="w-24 px-3.5 py-1.5 bg-slate-900 border border-slate-800 rounded-xl text-xs font-mono text-emerald-400 font-bold focus:outline-none focus:border-emerald-500 transition shadow-inner"
+                          />
+                          <span className="text-xs text-slate-400">สัปดาห์ / อาทิตย์ (สามารถพิมพ์ตัวเลขระบุจำนวนสัปดาห์ได้เอง)</span>
+                        </div>
+                      </div>
+
+                      <div className="text-[11px] text-slate-300/90 leading-relaxed font-sans bg-slate-900/80 border border-slate-800 px-3.5 py-2.5 rounded-xl space-y-1">
+                        <p className="flex items-center gap-1.5 font-semibold text-rose-300">
+                          <AlertTriangle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                          <span>
+                            กฎค่าปรับ: ปรับสัปดาห์ละ {editLateFeePerWeek || 0} บาท ตัดรอบคิดค่าปรับทุกวันจันทร์ เวลา 00:00 น.
+                          </span>
+                        </p>
+                        <p className="text-[10px] text-emerald-300/90 leading-normal pl-5">
+                          {editLateFeeGraceWeeks > 0 ? (
+                            <>
+                              🛡️ <strong>เปิดใช้งานระบบละเว้นค่าปรับ:</strong> เมื่อสมาชิกเริ่มมียอดค้างชำระ จะได้รับการยกเว้นค่าปรับในช่วง <strong>{editLateFeeGraceWeeks} สัปดาห์แรก</strong>ที่ค้าง และจะเริ่มคิดค่าปรับเมื่อค้างชำระติดต่อกันตั้งแต่สัปดาห์ที่ <strong>{editLateFeeGraceWeeks + 1}</strong> เป็นต้นไป
+                            </>
+                          ) : (
+                            <>
+                              ℹ️ สมาชิกที่มียอดค้างชำระข้ามสัปดาห์จะถูกคิดค่าปรับทันทีตั้งแต่สัปดาห์แรกที่มียอดค้าง
+                            </>
+                          )}
+                        </p>
+                      </div>
                     </div>
 
                     {/* SECTION 3: Leader Management & Co-Leaders (Leader Only) */}
@@ -3266,6 +3686,27 @@ export default function App() {
                       >
                         <RotateCcw className="w-3.5 h-3.5" />
                         <span>🔄 คืนค่าระบบเดิม & กู้คืนก๊วนตัวอย่างพร้อมสมาชิก 7 คน</span>
+                      </button>
+                    </div>
+
+                    {/* SECTION 7: Danger Zone - Delete Group Permanently */}
+                    <div className="bg-rose-950/25 border border-rose-500/35 rounded-2xl p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-xs font-bold text-rose-400 uppercase tracking-wider flex items-center gap-1.5">
+                          <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                          <span>7. ลบก๊วนนี้อย่างถาวร (Danger Zone)</span>
+                        </h4>
+                      </div>
+                      <p className="text-[11px] text-slate-300 leading-relaxed font-sans">
+                        ลบก๊วน <strong className="text-rose-400 font-semibold">"{activeGroup?.name}"</strong> พร้อมสมาชิกและประวัติการโอนทั้งหมดออกจากระบบอย่างถาวร (มีระบบยืนยันความปลอดภัยก่อนดำเนินการ)
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setShowMainDeleteConfirm(true)}
+                        className="w-full py-2.5 bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/35 hover:border-rose-500/60 text-rose-300 hover:text-rose-200 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer shadow-sm active:scale-[0.99]"
+                      >
+                        <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                        <span>🗑️ ลบก๊วนนี้ออกจากระบบอย่างถาวร</span>
                       </button>
                     </div>
 

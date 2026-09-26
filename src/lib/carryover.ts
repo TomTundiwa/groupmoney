@@ -8,6 +8,9 @@ export interface WeekCarryoverData {
   rawPaid: number;          // Actual amount paid in this specific week
   carriedIn: number;        // Carried over from the previous week
   lateFee: number;          // ค่าปรับจ่ายล่าช้าสำหรับสัปดาห์นี้
+  isLateFeeWaived?: boolean; // สัปดาห์นี้ได้รับการละเว้นค่าปรับหรือไม่
+  waivedLateFeeAmount?: number; // ยอดเงินค่าปรับที่ได้รับการยกเว้นในสัปดาห์นี้
+  overdueWeekNumber?: number; // สัปดาห์ที่ค้างชำระติดต่อกัน (1, 2, 3...)
   available: number;        // rawPaid + carriedIn - lateFee
   target: number;           // targetAmountPerMember
   isPaidFully: boolean;
@@ -26,6 +29,10 @@ export interface MemberCarryoverResult {
     carriedOut: number;
     rawPaidThisWeek: number;
     lateFeeThisWeek: number;
+    isLateFeeWaived: boolean;
+    waivedLateFeeAmount: number;
+    overdueWeekNumber: number;
+    graceWeeks: number;
   };
   weeksHistory: WeekCarryoverData[];
 }
@@ -196,7 +203,9 @@ export function calculateMemberCarryover(
   groupCreatedAt: string,
   lateFeePerWeek: number = 0,
   initialCarryover: number = 0,
-  customLateFee?: number
+  customLateFee?: number,
+  lateFeeGraceWeeks: number = 0,
+  customLateFeeGraceWeeks?: number
 ): MemberCarryoverResult {
   const memberTxs = transactions.filter((t) => t.memberId === memberId);
   const totalPaidAllTime = memberTxs.reduce((sum, t) => sum + t.amount, 0);
@@ -205,6 +214,11 @@ export function calculateMemberCarryover(
   const weeksHistory: WeekCarryoverData[] = [];
 
   let currentCarryOver = initialCarryover;
+  let consecutiveOverdueWeeks = 0;
+
+  const effectiveGraceWeeks = (customLateFeeGraceWeeks !== undefined && customLateFeeGraceWeeks !== null && String(customLateFeeGraceWeeks).trim() !== "")
+    ? Math.max(0, Number(customLateFeeGraceWeeks))
+    : Math.max(0, Number(lateFeeGraceWeeks) || 0);
 
   weekSpecs.forEach((spec, weekIdx) => {
     // Filter transactions for this member in this week
@@ -217,11 +231,34 @@ export function calculateMemberCarryover(
       return txDate >= spec.startDate && txDate <= spec.endDate;
     });
 
-    // ค่าปรับจ่ายล่าช้าคิดสำหรับสมาชิกที่มียอดค้างชำระยกมา (currentCarryOver < 0)
-    // โดยถ้าระบุ customLateFee เฉพาะบุคคล จะใช้ยอดนั้นแทนค่าปรับของกลุ่ม (เช่น 0 = ยกเว้น หรือระบุยอดเฉพาะ เช่น 50)
     const rawPaid = txsInWeek.reduce((sum, tx) => sum + tx.amount, 0);
     const effectiveLateFee = (customLateFee !== undefined && customLateFee !== null && String(customLateFee).trim() !== "") ? Number(customLateFee) : lateFeePerWeek;
-    const lateFee = (currentCarryOver < 0 && effectiveLateFee > 0 && (!isFirstWeek || initialCarryover < 0)) ? effectiveLateFee : 0;
+
+    // ตรวจสอบว่าสัปดาห์นี้เริ่มต้นด้วยยอดค้างชำระยกมาหรือไม่
+    const hasCarriedDeficit = currentCarryOver < 0 && (!isFirstWeek || initialCarryover < 0);
+    if (hasCarriedDeficit) {
+      consecutiveOverdueWeeks += 1;
+    } else {
+      consecutiveOverdueWeeks = 0;
+    }
+
+    let lateFee = 0;
+    let isLateFeeWaived = false;
+    let waivedLateFeeAmount = 0;
+
+    if (hasCarriedDeficit && effectiveLateFee > 0) {
+      if (consecutiveOverdueWeeks <= effectiveGraceWeeks) {
+        // อยู่ในช่วงละเว้นค่าปรับ (Grace Period)
+        isLateFeeWaived = true;
+        waivedLateFeeAmount = effectiveLateFee;
+        lateFee = 0;
+      } else {
+        // พ้นระยะเวลาละเว้นค่าปรับแล้ว คิดค่าปรับตามปกติ
+        lateFee = effectiveLateFee;
+        isLateFeeWaived = false;
+        waivedLateFeeAmount = 0;
+      }
+    }
 
     // ยอดเงินที่มีในสัปดาห์นี้ = ยอดโอนสัปดาห์นี้ + ยอดยกมา (ติดลบคือหนี้) - ค่าปรับ
     const available = rawPaid + currentCarryOver - lateFee;
@@ -250,6 +287,9 @@ export function calculateMemberCarryover(
       rawPaid,
       carriedIn: currentCarryOver,
       lateFee,
+      isLateFeeWaived,
+      waivedLateFeeAmount,
+      overdueWeekNumber: consecutiveOverdueWeeks,
       available,
       target: targetAmount,
       isPaidFully,
@@ -269,13 +309,17 @@ export function calculateMemberCarryover(
     memberId,
     totalPaidAllTime,
     currentWeekStatus: {
-      isPaidFully: currentWeek.isPaidFully,
-      available: currentWeek.available,
-      deficit: currentWeek.deficit,
-      carriedIn: currentWeek.carriedIn,
-      carriedOut: currentWeek.carriedOut,
-      rawPaidThisWeek: currentWeek.rawPaid,
-      lateFeeThisWeek: currentWeek.lateFee,
+      isPaidFully: currentWeek?.isPaidFully ?? false,
+      available: currentWeek?.available ?? 0,
+      deficit: currentWeek?.deficit ?? 0,
+      carriedIn: currentWeek?.carriedIn ?? 0,
+      carriedOut: currentWeek?.carriedOut ?? 0,
+      rawPaidThisWeek: currentWeek?.rawPaid ?? 0,
+      lateFeeThisWeek: currentWeek?.lateFee ?? 0,
+      isLateFeeWaived: currentWeek?.isLateFeeWaived ?? false,
+      waivedLateFeeAmount: currentWeek?.waivedLateFeeAmount ?? 0,
+      overdueWeekNumber: currentWeek?.overdueWeekNumber ?? 0,
+      graceWeeks: effectiveGraceWeeks,
     },
     weeksHistory,
   };

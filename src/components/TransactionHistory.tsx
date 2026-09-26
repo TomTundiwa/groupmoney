@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Transaction, Member } from "../types";
-import { FileText, Plus, Search, Trash2, SlidersHorizontal, Sparkles, PlusCircle, Lock, Edit2, Check, X, ChevronLeft, ChevronRight, FileImage, Image as ImageIcon } from "lucide-react";
+import { FileText, Plus, Search, Trash2, SlidersHorizontal, Sparkles, PlusCircle, Lock, Edit2, Check, X, ChevronLeft, ChevronRight, FileImage, Image as ImageIcon, LayoutGrid, List, AppWindow } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import SlipImageViewerModal from "./SlipImageViewerModal";
 
@@ -34,6 +34,20 @@ export default function TransactionHistory({
   const [showAddForm, setShowAddForm] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterType, setFilterType] = useState<"all" | "ai" | "manual">("all");
+  const [viewMode, setViewMode] = useState<"table" | "window">(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("slipbuddy_tx_view_mode");
+      if (saved === "table" || saved === "window") return saved;
+    }
+    return "window";
+  });
+
+  const handleSetViewMode = (mode: "table" | "window") => {
+    setViewMode(mode);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("slipbuddy_tx_view_mode", mode);
+    }
+  };
   const [selectedSlipTx, setSelectedSlipTx] = useState<Transaction | null>(null);
 
   // Pagination State (หน้าต่างละ 5-7 อัน)
@@ -326,6 +340,36 @@ export default function TransactionHistory({
             กรอกแมนนวล
           </button>
         </div>
+
+        {/* View Mode Toggle: แบบตาราง / แบบหน้าต่าง */}
+        <div className="flex items-center gap-1 bg-slate-950/60 p-1 rounded-xl border border-slate-800">
+          <button
+            type="button"
+            onClick={() => handleSetViewMode("table")}
+            className={`px-2.5 py-1 rounded-lg transition flex items-center gap-1.5 font-bold cursor-pointer text-xs ${
+              viewMode === "table"
+                ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shadow-sm"
+                : "text-slate-400 hover:text-slate-200"
+            }`}
+            title="จัดเรียงแบบตาราง (Table View)"
+          >
+            <List className="w-3.5 h-3.5" />
+            <span>แบบตาราง</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => handleSetViewMode("window")}
+            className={`px-2.5 py-1 rounded-lg transition flex items-center gap-1.5 font-bold cursor-pointer text-xs ${
+              viewMode === "window"
+                ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shadow-sm"
+                : "text-slate-400 hover:text-slate-200"
+            }`}
+            title="จัดเรียงแบบหน้าต่างการ์ด (Window Grid Tiles)"
+          >
+            <LayoutGrid className="w-3.5 h-3.5" />
+            <span>แบบหน้าต่าง</span>
+          </button>
+        </div>
       </div>
 
       {/* Transaction List */}
@@ -334,227 +378,474 @@ export default function TransactionHistory({
           ไม่มีประวัติการโอนเงินตรงตามที่ค้นหา
         </div>
       ) : (
-        <div className="overflow-x-auto" id="transactions-ledger">
-          <table className="w-full text-left text-xs text-slate-300">
-            <thead>
-              <tr className="text-slate-400 border-b border-slate-850 font-sans">
-                <th className="py-3 font-medium">ชื่อคนโอนเงิน</th>
-                <th className="py-3 font-medium">วันเวลา</th>
-                <th className="py-3 font-medium">ช่องทาง/ธนาคาร</th>
-                <th className="py-3 font-medium text-center">สลิป</th>
-                <th className="py-3 font-medium">หมายเหตุ</th>
-                <th className="py-3 font-medium text-right">ยอดโอน</th>
-                <th className="py-3 text-right"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800/40">
+        <div className="space-y-4" id="transactions-ledger">
+          {viewMode === "window" ? (
+            /* Window Grid Tiles View (จัดเรียงแบบหน้าต่างการ์ด) */
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5" id="transactions-ledger-window">
               {paginatedTxs.map((tx, txIdx) => (
                 editingTxId === tx.id ? (
-                  <tr key={tx.id ? `tx-edit-${tx.id}` : `tx-edit-${txIdx}`} className="bg-slate-800/30 border border-emerald-500/20 font-sans">
-                    {/* Member Select */}
-                    <td className="py-2 pr-2" colSpan={1}>
-                      <select
-                        value={editMemberId}
-                        onChange={(e) => setEditMemberId(e.target.value)}
-                        className="w-full px-1.5 py-1 bg-slate-900 border border-slate-700 rounded text-xs text-slate-100 focus:outline-none focus:border-emerald-500"
-                      >
-                        <option value="">-- ไม่ระบุชื่อ --</option>
-                        {members.map((m, mIdx) => (
-                          <option key={m.id ? `edit-opt-${m.id}-${mIdx}` : `edit-opt-${mIdx}`} value={m.id}>
-                            {m.nickname} ({m.name})
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    {/* Date & Time */}
-                    <td className="py-2 pr-2" colSpan={1}>
-                      <div className="flex flex-col gap-1">
-                        <input
-                          type="date"
-                          value={editDate}
-                          onChange={(e) => setEditDate(e.target.value)}
-                          className="w-full px-1.5 py-0.5 bg-slate-900 border border-slate-700 rounded text-[10px] text-slate-100 focus:outline-none focus:border-emerald-500"
-                        />
+                  /* Window Edit Card */
+                  <div
+                    key={tx.id ? `tx-card-edit-${tx.id}` : `tx-card-edit-${txIdx}`}
+                    className="p-4 bg-slate-900/95 border border-emerald-500/50 rounded-2xl shadow-xl space-y-3 font-sans"
+                  >
+                    <div className="flex items-center justify-between pb-2 border-b border-slate-800 text-xs">
+                      <div className="flex items-center gap-1.5 text-emerald-400 font-bold">
+                        <Edit2 className="w-3.5 h-3.5" />
+                        <span>แก้ไขข้อมูลรายการโอน</span>
+                      </div>
+                      <span className="text-[10px] text-slate-400 font-mono">#{tx.id ? tx.id.slice(-6) : ""}</span>
+                    </div>
+
+                    <div className="space-y-2 text-xs">
+                      <div>
+                        <label className="block text-[10px] text-slate-400 mb-1">สมาชิกผู้โอน</label>
+                        <select
+                          value={editMemberId}
+                          onChange={(e) => setEditMemberId(e.target.value)}
+                          className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-xl text-slate-200 text-xs focus:outline-none focus:border-emerald-500"
+                        >
+                          <option value="">-- ไม่ระบุชื่อ --</option>
+                          {members.map((m, mIdx) => (
+                            <option key={m.id ? `edit-card-opt-${m.id}-${mIdx}` : `edit-card-opt-${mIdx}`} value={m.id}>
+                              {m.nickname} ({m.name})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-[10px] text-slate-400 mb-1">ยอดเงิน (฿)</label>
+                          <input
+                            type="number"
+                            step="any"
+                            value={editAmount}
+                            onChange={(e) => setEditAmount(e.target.value)}
+                            className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-xl text-xs font-mono font-bold text-emerald-400 focus:outline-none focus:border-emerald-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] text-slate-400 mb-1">ธนาคาร/ช่องทาง</label>
+                          <input
+                            type="text"
+                            value={editBank}
+                            onChange={(e) => setEditBank(e.target.value)}
+                            className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-[10px] text-slate-400 mb-1">วันที่โอน</label>
+                          <input
+                            type="date"
+                            value={editDate}
+                            onChange={(e) => setEditDate(e.target.value)}
+                            className="w-full px-2 py-1 bg-slate-950 border border-slate-700 rounded-xl text-[11px] text-slate-200 focus:outline-none focus:border-emerald-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] text-slate-400 mb-1">เวลาที่โอน</label>
+                          <input
+                            type="text"
+                            value={editTime}
+                            onChange={(e) => setEditTime(e.target.value)}
+                            placeholder="12:00"
+                            className="w-full px-2 py-1 bg-slate-950 border border-slate-700 rounded-xl text-[11px] font-mono text-slate-200 focus:outline-none focus:border-emerald-500"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] text-slate-400 mb-1">หมายเหตุ</label>
                         <input
                           type="text"
-                          value={editTime}
-                          onChange={(e) => setEditTime(e.target.value)}
-                          placeholder="12:00"
-                          className="w-full px-1.5 py-0.5 bg-slate-900 border border-slate-700 rounded text-[10px] font-mono text-slate-100 focus:outline-none focus:border-emerald-500"
+                          value={editNotes}
+                          onChange={(e) => setEditNotes(e.target.value)}
+                          placeholder="ระบุหมายเหตุ เช่น โอนล่วงหน้า"
+                          className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
                         />
                       </div>
-                    </td>
-                    {/* Bank/Channel */}
-                    <td className="py-2 pr-2">
-                      <input
-                        type="text"
-                        value={editBank}
-                        onChange={(e) => setEditBank(e.target.value)}
-                        placeholder="ธนาคาร/เงินสด"
-                        className="w-full px-1.5 py-1 bg-slate-900 border border-slate-700 rounded text-xs text-slate-100 focus:outline-none focus:border-emerald-500"
-                      />
-                    </td>
-                    {/* Slip info in edit mode */}
-                    <td className="py-2 pr-2 text-center text-slate-500 font-sans text-[11px]">
-                      {tx.slipImageUrl ? (
-                        <button
-                          type="button"
-                          onClick={() => setSelectedSlipTx(tx)}
-                          className="text-emerald-400 hover:text-emerald-300 inline-flex items-center gap-1 font-sans text-xs underline cursor-pointer"
-                          title="ดูรูปสลิป"
-                        >
-                          <FileImage className="w-3.5 h-3.5" /> ดูสลิป
-                        </button>
-                      ) : (
-                        <span className="text-slate-600">-</span>
-                      )}
-                    </td>
-                    {/* Notes */}
-                    <td className="py-2 pr-2">
-                      <input
-                        type="text"
-                        value={editNotes}
-                        onChange={(e) => setEditNotes(e.target.value)}
-                        placeholder="หมายเหตุ"
-                        className="w-full px-1.5 py-1 bg-slate-900 border border-slate-700 rounded text-xs text-slate-100 focus:outline-none focus:border-emerald-500"
-                      />
-                    </td>
-                    {/* Amount */}
-                    <td className="py-2 pr-2 text-right">
-                      <input
-                        type="number"
-                        step="any"
-                        value={editAmount}
-                        onChange={(e) => setEditAmount(e.target.value)}
-                        className="w-20 px-1.5 py-1 bg-slate-900 border border-slate-700 rounded text-xs text-right font-mono text-emerald-400 focus:outline-none focus:border-emerald-500"
-                      />
-                    </td>
-                    {/* Action buttons */}
-                    <td className="py-2 text-right pl-2 whitespace-nowrap">
-                      <div className="flex items-center justify-end gap-1">
-                        <button
-                          onClick={() => handleSaveEditTx(tx.id)}
-                          className="p-1 bg-emerald-500 text-slate-950 rounded hover:bg-emerald-400 transition cursor-pointer"
-                          title="บันทึก"
-                        >
-                          <Check className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={handleCancelEditTx}
-                          className="p-1 bg-slate-700 text-slate-300 rounded hover:bg-slate-600 transition cursor-pointer"
-                          title="ยกเลิก"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
+                    </div>
+
+                    <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+                      <button
+                        type="button"
+                        onClick={handleCancelEditTx}
+                        className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold transition cursor-pointer"
+                      >
+                        ยกเลิก
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSaveEditTx(tx.id)}
+                        className="px-3.5 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer shadow-sm"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        <span>บันทึก</span>
+                      </button>
+                    </div>
+                  </div>
                 ) : (
-                  <tr
-                    key={tx.id ? `tx-row-${tx.id}` : `tx-row-${txIdx}`}
+                  /* Window Card Tile */
+                  <div
+                    key={tx.id ? `tx-card-${tx.id}` : `tx-card-${txIdx}`}
                     onClick={(e) => {
-                      if ((e.target as HTMLElement).closest("button[data-action]")) {
-                        return;
-                      }
+                      if ((e.target as HTMLElement).closest("button[data-action]")) return;
                       setSelectedSlipTx(tx);
                     }}
-                    className="hover:bg-slate-800/40 font-sans group cursor-pointer transition-colors duration-150"
-                    title={isLeader ? "คลิกที่รายการนี้เพื่อเปิดดูรูปสลิปที่แนบมา" : "คลิกเพื่อดูรายละเอียดรายการโอน"}
+                    className="group relative p-3.5 bg-slate-900/80 hover:bg-slate-850 border border-slate-800 hover:border-emerald-500/40 rounded-2xl transition duration-200 shadow-md hover:shadow-lg flex flex-col justify-between cursor-pointer"
                   >
-                    <td className="py-3 pr-2">
-                      <div className="flex items-center gap-1.5">
-                        <span className="font-semibold text-slate-200">
-                          {getMemberNickname(tx.memberId, tx.senderNameText)}
-                        </span>
-                        {tx.isAiParsed ? (
-                          <span className="text-[9px] bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded border border-emerald-500/15 font-mono">
-                            AI
-                          </span>
-                        ) : (
-                          <span className="text-[9px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded border border-slate-700/50 font-mono">
-                            Manual
-                          </span>
+                    {/* Window Header */}
+                    <div>
+                      <div className="flex items-start justify-between gap-2 mb-2 pb-2 border-b border-slate-800/80">
+                        <div className="min-w-0 flex items-center gap-2">
+                          <div className="w-8 h-8 rounded-xl bg-slate-800 border border-slate-700 flex items-center justify-center text-xs font-bold text-slate-200 shrink-0 shadow-inner">
+                            {getMemberNickname(tx.memberId, tx.senderNameText).charAt(0) || "👤"}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-bold text-slate-200 text-xs truncate font-sans">
+                                {getMemberNickname(tx.memberId, tx.senderNameText)}
+                              </span>
+                              {tx.isAiParsed ? (
+                                <span className="text-[9px] bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded-md border border-emerald-500/20 font-mono shrink-0">
+                                  AI
+                                </span>
+                              ) : (
+                                <span className="text-[9px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded-md border border-slate-700 font-mono shrink-0">
+                                  Manual
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                              {tx.date} {tx.time}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Window Actions */}
+                        {isLeader && (
+                          <div className="flex items-center gap-1 shrink-0 opacity-80 group-hover:opacity-100 transition">
+                            <button
+                              type="button"
+                              data-action="edit"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleStartEditTx(tx);
+                              }}
+                              className="p-1 text-slate-400 hover:text-emerald-400 hover:bg-emerald-500/10 rounded-lg transition cursor-pointer"
+                              title="แก้ไขรายการ"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              data-action="delete"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onDeleteTransaction(tx.id);
+                              }}
+                              className="p-1 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition cursor-pointer"
+                              title="ลบรายการโอน"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         )}
                       </div>
-                    </td>
-                    <td className="py-3 pr-2 font-mono text-slate-400 whitespace-nowrap">
-                      {tx.date} {tx.time}
-                    </td>
-                    <td className="py-3 pr-2 text-slate-400 font-mono">
-                      {tx.bank}
-                    </td>
-                    <td className="py-3 pr-2 text-center whitespace-nowrap">
+
+                      {/* Amount & Bank Channel */}
+                      <div className="flex items-baseline justify-between gap-2 mb-2">
+                        <div>
+                          <span className="text-[10px] text-slate-500 font-sans block">ยอดเงินโอน</span>
+                          <span className="text-lg font-bold font-mono text-emerald-400 tracking-tight">
+                            ฿{tx.amount.toLocaleString("th-TH", { minimumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-[10px] text-slate-500 font-sans block">ช่องทาง</span>
+                          <span className="text-xs font-mono text-slate-300 bg-slate-950/60 px-2 py-0.5 rounded-md border border-slate-800 inline-block">
+                            {tx.bank || "เงินสด"}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Notes */}
+                      {tx.notes && (
+                        <p className="text-[11px] text-slate-400 bg-slate-950/40 p-2 rounded-xl border border-slate-800/60 mb-2 font-sans line-clamp-2">
+                          📝 {tx.notes}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Window Card Footer */}
+                    <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between gap-2 mt-1">
                       {tx.slipImageUrl ? (
                         isLeader ? (
                           <button
                             type="button"
+                            data-action="view-slip"
                             onClick={(e) => {
                               e.stopPropagation();
                               setSelectedSlipTx(tx);
                             }}
-                            className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 hover:text-emerald-300 border border-emerald-500/30 rounded-lg text-xs font-sans font-semibold transition cursor-pointer shadow-sm active:scale-95"
-                            title="ตรวจสอบรูปสลิปโอนเงิน (เฉพาะหัวหน้าก๊วน)"
+                            className="w-full inline-flex items-center justify-center gap-1.5 py-1.5 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 hover:text-emerald-200 border border-emerald-500/30 rounded-xl text-xs font-semibold transition cursor-pointer"
                           >
                             <FileImage className="w-3.5 h-3.5 text-emerald-400" />
-                            <span>ดูสลิป</span>
+                            <span>ดูรูปสลิปที่แนบมา</span>
                           </button>
                         ) : (
                           <button
                             type="button"
+                            data-action="view-slip"
                             onClick={(e) => {
                               e.stopPropagation();
                               setSelectedSlipTx(tx);
                             }}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-800/80 hover:bg-slate-800 text-slate-400 hover:text-slate-300 border border-slate-700/60 rounded-lg text-xs font-sans transition cursor-pointer"
-                            title="มีรูปสลิปแนบมา (เฉพาะหัวหน้ากลุ่มเท่านั้นที่ดูได้)"
+                            className="w-full inline-flex items-center justify-center gap-1.5 py-1.5 px-3 bg-slate-950/60 hover:bg-slate-950 text-slate-400 border border-slate-800 rounded-xl text-xs transition cursor-pointer"
                           >
-                            <Lock className="w-3 h-3 text-amber-400/80" />
-                            <span>สลิป 🔒</span>
+                            <Lock className="w-3.5 h-3.5 text-amber-400/80" />
+                            <span>มีสลิปแนบ (ล็อก 🔒)</span>
                           </button>
                         )
                       ) : (
-                        <span className="text-[11px] text-slate-600 font-sans">-</span>
-                      )}
-                    </td>
-                    <td className="py-3 pr-2 text-slate-400 truncate max-w-[150px]" title={tx.notes}>
-                      {tx.notes || "-"}
-                    </td>
-                    <td className="py-3 text-right font-mono font-semibold text-emerald-400">
-                      ฿{tx.amount.toLocaleString("th-TH", { minimumFractionDigits: 2 })}
-                    </td>
-                    <td className="py-3 text-right pl-2">
-                      {isLeader && (
-                        <div className="opacity-100 md:opacity-0 md:group-hover:opacity-100 flex items-center justify-end gap-1">
-                          <button
-                            data-action="edit"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleStartEditTx(tx);
-                            }}
-                            className="p-1 text-slate-500 hover:text-emerald-400 hover:bg-emerald-500/10 rounded-lg transition duration-150 cursor-pointer"
-                            title="แก้ไขรายการ"
-                          >
-                            <Edit2 className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            data-action="delete"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onDeleteTransaction(tx.id);
-                            }}
-                            className="p-1 text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition duration-150 cursor-pointer"
-                            title="ลบรายการโอน"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                        <div className="w-full py-1 text-center text-[10px] text-slate-600 font-sans">
+                          ไม่มีรูปสลิปแนบมา
                         </div>
                       )}
-                    </td>
-                  </tr>
+                    </div>
+                  </div>
                 )
               ))}
-            </tbody>
-          </table>
+            </div>
+          ) : (
+            /* Table View (แบบตาราง) */
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs text-slate-300">
+                <thead>
+                  <tr className="text-slate-400 border-b border-slate-850 font-sans">
+                    <th className="py-3 font-medium">ชื่อคนโอนเงิน</th>
+                    <th className="py-3 font-medium">วันเวลา</th>
+                    <th className="py-3 font-medium">ช่องทาง/ธนาคาร</th>
+                    <th className="py-3 font-medium text-center">สลิป</th>
+                    <th className="py-3 font-medium">หมายเหตุ</th>
+                    <th className="py-3 font-medium text-right">ยอดโอน</th>
+                    <th className="py-3 text-right"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/40">
+                  {paginatedTxs.map((tx, txIdx) => (
+                    editingTxId === tx.id ? (
+                      <tr key={tx.id ? `tx-edit-${tx.id}` : `tx-edit-${txIdx}`} className="bg-slate-800/30 border border-emerald-500/20 font-sans">
+                        {/* Member Select */}
+                        <td className="py-2 pr-2" colSpan={1}>
+                          <select
+                            value={editMemberId}
+                            onChange={(e) => setEditMemberId(e.target.value)}
+                            className="w-full px-1.5 py-1 bg-slate-900 border border-slate-700 rounded text-xs text-slate-100 focus:outline-none focus:border-emerald-500"
+                          >
+                            <option value="">-- ไม่ระบุชื่อ --</option>
+                            {members.map((m, mIdx) => (
+                              <option key={m.id ? `edit-opt-${m.id}-${mIdx}` : `edit-opt-${mIdx}`} value={m.id}>
+                                {m.nickname} ({m.name})
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        {/* Date & Time */}
+                        <td className="py-2 pr-2" colSpan={1}>
+                          <div className="flex flex-col gap-1">
+                            <input
+                              type="date"
+                              value={editDate}
+                              onChange={(e) => setEditDate(e.target.value)}
+                              className="w-full px-1.5 py-0.5 bg-slate-900 border border-slate-700 rounded text-[10px] text-slate-100 focus:outline-none focus:border-emerald-500"
+                            />
+                            <input
+                              type="text"
+                              value={editTime}
+                              onChange={(e) => setEditTime(e.target.value)}
+                              placeholder="12:00"
+                              className="w-full px-1.5 py-0.5 bg-slate-900 border border-slate-700 rounded text-[10px] font-mono text-slate-100 focus:outline-none focus:border-emerald-500"
+                            />
+                          </div>
+                        </td>
+                        {/* Bank/Channel */}
+                        <td className="py-2 pr-2">
+                          <input
+                            type="text"
+                            value={editBank}
+                            onChange={(e) => setEditBank(e.target.value)}
+                            placeholder="ธนาคาร/เงินสด"
+                            className="w-full px-1.5 py-1 bg-slate-900 border border-slate-700 rounded text-xs text-slate-100 focus:outline-none focus:border-emerald-500"
+                          />
+                        </td>
+                        {/* Slip info in edit mode */}
+                        <td className="py-2 pr-2 text-center text-slate-500 font-sans text-[11px]">
+                          {tx.slipImageUrl ? (
+                            <button
+                              type="button"
+                              onClick={() => setSelectedSlipTx(tx)}
+                              className="text-emerald-400 hover:text-emerald-300 inline-flex items-center gap-1 font-sans text-xs underline cursor-pointer"
+                              title="ดูรูปสลิป"
+                            >
+                              <FileImage className="w-3.5 h-3.5" /> ดูสลิป
+                            </button>
+                          ) : (
+                            <span className="text-slate-600">-</span>
+                          )}
+                        </td>
+                        {/* Notes */}
+                        <td className="py-2 pr-2">
+                          <input
+                            type="text"
+                            value={editNotes}
+                            onChange={(e) => setEditNotes(e.target.value)}
+                            placeholder="หมายเหตุ"
+                            className="w-full px-1.5 py-1 bg-slate-900 border border-slate-700 rounded text-xs text-slate-100 focus:outline-none focus:border-emerald-500"
+                          />
+                        </td>
+                        {/* Amount */}
+                        <td className="py-2 pr-2 text-right">
+                          <input
+                            type="number"
+                            step="any"
+                            value={editAmount}
+                            onChange={(e) => setEditAmount(e.target.value)}
+                            className="w-20 px-1.5 py-1 bg-slate-900 border border-slate-700 rounded text-xs text-right font-mono text-emerald-400 focus:outline-none focus:border-emerald-500"
+                          />
+                        </td>
+                        {/* Action buttons */}
+                        <td className="py-2 text-right pl-2 whitespace-nowrap">
+                          <div className="flex items-center justify-end gap-1">
+                            <button
+                              onClick={() => handleSaveEditTx(tx.id)}
+                              className="p-1 bg-emerald-500 text-slate-950 rounded hover:bg-emerald-400 transition cursor-pointer"
+                              title="บันทึก"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={handleCancelEditTx}
+                              className="p-1 bg-slate-700 text-slate-300 rounded hover:bg-slate-600 transition cursor-pointer"
+                              title="ยกเลิก"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : (
+                      <tr
+                        key={tx.id ? `tx-row-${tx.id}` : `tx-row-${txIdx}`}
+                        onClick={(e) => {
+                          if ((e.target as HTMLElement).closest("button[data-action]")) {
+                            return;
+                          }
+                          setSelectedSlipTx(tx);
+                        }}
+                        className="hover:bg-slate-800/40 font-sans group cursor-pointer transition-colors duration-150"
+                        title={isLeader ? "คลิกที่รายการนี้เพื่อเปิดดูรูปสลิปที่แนบมา" : "คลิกเพื่อดูรายละเอียดรายการโอน"}
+                      >
+                        <td className="py-3 pr-2">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-semibold text-slate-200">
+                              {getMemberNickname(tx.memberId, tx.senderNameText)}
+                            </span>
+                            {tx.isAiParsed ? (
+                              <span className="text-[9px] bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded border border-emerald-500/15 font-mono">
+                                AI
+                              </span>
+                            ) : (
+                              <span className="text-[9px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded border border-slate-700/50 font-mono">
+                                Manual
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-3 pr-2 font-mono text-slate-400 whitespace-nowrap">
+                          {tx.date} {tx.time}
+                        </td>
+                        <td className="py-3 pr-2 text-slate-400 font-mono">
+                          {tx.bank}
+                        </td>
+                        <td className="py-3 pr-2 text-center whitespace-nowrap">
+                          {tx.slipImageUrl ? (
+                            isLeader ? (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedSlipTx(tx);
+                                }}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 hover:text-emerald-300 border border-emerald-500/30 rounded-lg text-xs font-sans font-semibold transition cursor-pointer shadow-sm active:scale-95"
+                                title="ตรวจสอบรูปสลิปโอนเงิน (เฉพาะหัวหน้าก๊วน)"
+                              >
+                                <FileImage className="w-3.5 h-3.5 text-emerald-400" />
+                                <span>ดูสลิป</span>
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedSlipTx(tx);
+                                }}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-800/80 hover:bg-slate-800 text-slate-400 hover:text-slate-300 border border-slate-700/60 rounded-lg text-xs font-sans transition cursor-pointer"
+                                title="มีรูปสลิปแนบมา (เฉพาะหัวหน้ากลุ่มเท่านั้นที่ดูได้)"
+                              >
+                                <Lock className="w-3 h-3 text-amber-400/80" />
+                                <span>สลิป 🔒</span>
+                              </button>
+                            )
+                          ) : (
+                            <span className="text-[11px] text-slate-600 font-sans">-</span>
+                          )}
+                        </td>
+                        <td className="py-3 pr-2 text-slate-400 truncate max-w-[150px]" title={tx.notes}>
+                          {tx.notes || "-"}
+                        </td>
+                        <td className="py-3 text-right font-mono font-semibold text-emerald-400">
+                          ฿{tx.amount.toLocaleString("th-TH", { minimumFractionDigits: 2 })}
+                        </td>
+                        <td className="py-3 text-right pl-2">
+                          {isLeader && (
+                            <div className="opacity-100 md:opacity-0 md:group-hover:opacity-100 flex items-center justify-end gap-1">
+                              <button
+                                data-action="edit"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleStartEditTx(tx);
+                                }}
+                                className="p-1 text-slate-500 hover:text-emerald-400 hover:bg-emerald-500/10 rounded-lg transition duration-150 cursor-pointer"
+                                title="แก้ไขรายการ"
+                              >
+                                <Edit2 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                data-action="delete"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onDeleteTransaction(tx.id);
+                                }}
+                                className="p-1 text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition duration-150 cursor-pointer"
+                                title="ลบรายการโอน"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
 
           {/* Pagination Controls (หน้าต่างละ 5-7 อัน) */}
           <div className="flex flex-col sm:flex-row items-center justify-between gap-3 mt-4 pt-4 border-t border-slate-800 text-xs font-sans">
@@ -566,7 +857,7 @@ export default function TransactionHistory({
               </span>
               <span className="text-slate-600">|</span>
               <div className="flex items-center gap-1.5">
-                <span className="text-[11px]">หน้าต่างละ:</span>
+                <span className="text-[11px]">จำนวนต่อหน้า:</span>
                 <select
                   value={itemsPerPage}
                   onChange={(e) => {
@@ -590,7 +881,7 @@ export default function TransactionHistory({
                   className={`p-1.5 rounded-lg border flex items-center justify-center transition ${
                     currentPageSafe <= 1
                       ? "border-slate-800 text-slate-600 cursor-not-allowed"
-                      : "border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-white cursor-pointer"
+                      : "border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-slate-100 cursor-pointer"
                   }`}
                   title="หน้าก่อนหน้า"
                 >
@@ -619,7 +910,7 @@ export default function TransactionHistory({
                   className={`p-1.5 rounded-lg border flex items-center justify-center transition ${
                     currentPageSafe >= totalPages
                       ? "border-slate-800 text-slate-600 cursor-not-allowed"
-                      : "border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-white cursor-pointer"
+                      : "border-slate-700 text-slate-300 hover:bg-slate-800 hover:text-slate-100 cursor-pointer"
                   }`}
                   title="หน้าถัดไป"
                 >
