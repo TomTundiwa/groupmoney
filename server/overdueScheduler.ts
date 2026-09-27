@@ -1,7 +1,7 @@
 import { db } from "../src/lib/firebase";
 import { collection, getDocs, doc, updateDoc } from "firebase/firestore";
 import { Group } from "../src/types";
-import { buildCheckEmbed, fetchGroupData } from "./discordBotService";
+import { buildCheckEmbed, buildOverdueEmbed, fetchGroupData } from "./discordBotService";
 
 // Helper to validate Discord Webhook URL
 function isValidDiscordWebhookUrl(url?: string): boolean {
@@ -233,10 +233,12 @@ export async function sendOverdueBroadcastForGroup(
     }
 
     const { members, transactions } = data;
-    const embed = buildCheckEmbed(data.group, members, transactions, "current");
+    const embed = buildOverdueEmbed(data.group, members, transactions, "current");
 
     const timeSlotLabel = targetTimeSlot ? `รอบเวลา ${targetTimeSlot} น.` : "";
-    embed.description = `⏰ **แจ้งเตือนยอดค้างอัตโนมัติประจำวัน ${timeSlotLabel}**\n\n${embed.description || ""}`;
+    if (timeSlotLabel) {
+      embed.description = `⏰ **แจ้งเตือนยอดค้างอัตโนมัติประจำวัน (${timeSlotLabel})**\n\n${embed.description || ""}`;
+    }
 
     const payload: Record<string, any> = {
       username: `แจ้งเตือนยอดค้าง • ${data.group.name || "ก๊วนออมเงิน"}`,

@@ -251,92 +251,84 @@ export function createClientOverdueEmbed(
   });
 
   const unpaidList = memberStatuses.filter((s) => !s.isPaidFully || s.deficit > 0);
-  const paidList = memberStatuses.filter((s) => s.isPaidFully && s.deficit <= 0);
   const totalUnpaidAmount = unpaidList.reduce((sum, s) => sum + s.deficit, 0);
-  const totalLateFeeAmount = unpaidList.reduce((sum, s) => sum + s.totalLateFee, 0);
-  const totalPaidThisPeriod = memberStatuses.reduce((sum, s) => sum + (s.rawPaid || 0), 0);
-  const totalFundBalance = (transactions || []).reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
-  const groupTotalTarget = targetPerMember * (members.length || 1);
-
   const targetWeekLabel = memberStatuses[0]?.targetWeekData?.label || (isPrevious ? "อาทิตย์ก่อน" : "รอบปัจจุบัน");
-  const targetCycleLabel = memberStatuses[0]?.targetWeekData?.cycleLabel;
 
-  let unpaidValue = "";
   if (unpaidList.length === 0) {
-    unpaidValue = isPrevious
-      ? "🎉 **สมาชิกทุกคนโอนเงินครบถ้วนในอาทิตย์ก่อนหน้า ไม่มีใครค้างยอด**"
-      : "🎉 **สมาชิกทุกคนโอนเงินครบถ้วนแล้วในรอบนี้ ไม่มีใครค้างยอด**";
-  } else {
-    unpaidValue = unpaidList
-      .map((s, idx) => {
-        const discordTag = s.member.discordUserId
-          ? ` <@${s.member.discordUserId}>`
-          : s.member.discordUsername ? ` (@${s.member.discordUsername})` : "";
-        const namePart = s.member.name && s.member.name !== s.member.nickname ? ` (${s.member.name})` : "";
-        const labelText = s.totalLateFee > 0 ? "ค้างจ่าย" : "ค้าง";
-        const finePart = s.totalLateFee > 0
-          ? ` (รวมค่าปรับ +฿${s.totalLateFee.toLocaleString("th-TH")})`
-          : s.isLateFeeWaived
-          ? " (🛡️ สิทธิ์ละเว้นค่าปรับ)"
-          : "";
-        const paidPart = s.rawPaid > 0 ? ` • โอนแล้ว ฿${s.rawPaid.toLocaleString("th-TH")}` : "";
-        return `${idx + 1}. 🔴 **${s.member.nickname}**${discordTag}${namePart}: **${labelText} ฿${s.deficit.toLocaleString("th-TH")}**${finePart}${paidPart}`;
-      })
-      .join("\n");
+    return {
+      title: `✅ สรุปยอดค้างชำระ: ${group.name}`,
+      description: `📅 ประจำรอบ: **${targetWeekLabel}**\n🎉 **สมาชิกทุกคนโอนเงินครบถ้วนแล้ว ไม่มีใครมียอดค้างชำระ**`,
+      color: 0x10b981,
+      fields: [
+        {
+          name: "สถานะการชำระเงิน",
+          value: "🟢 ยอดค้างชำระเป็น ฿0 ทุกคนชำระเงินครบถ้วนสมบูรณ์แล้ว",
+          inline: false,
+        },
+      ],
+      footer: {
+        text: "ระบบแจ้งเตือนยอดค้างอัตโนมัติ",
+      },
+      timestamp: new Date().toISOString(),
+    };
   }
 
-  let paidValue = "";
-  if (paidList.length === 0) {
-    paidValue = isPrevious ? "ไม่มีสมาชิกที่โอนครบในอาทิตย์ก่อนหน้า" : "ยังไม่มีสมาชิกโอนเงินครบในรอบนี้";
-  } else {
-    paidValue = paidList
-      .map((s, idx) => {
-        const discordTag = s.member.discordUserId
-          ? ` <@${s.member.discordUserId}>`
-          : s.member.discordUsername ? ` (@${s.member.discordUsername})` : "";
-        const bonusPart = s.carriedOut > 0 ? ` *(ทบเกิน +฿${s.carriedOut.toLocaleString("th-TH")})*` : "";
-        return `${idx + 1}. 🟢 **${s.member.nickname}**${discordTag}: ครบถ้วน (โอนแล้ว ฿${s.rawPaid.toLocaleString("th-TH")}${bonusPart})`;
-      })
-      .join("\n");
+  // Format list of unpaid members strictly: Name + Overdue amount
+  const unpaidLines = unpaidList.map((s, idx) => {
+    const discordTag = s.member.discordUserId
+      ? ` <@${s.member.discordUserId}>`
+      : s.member.discordUsername
+      ? ` (@${s.member.discordUsername})`
+      : "";
+    const realName = s.member.name && s.member.name !== s.member.nickname ? ` (${s.member.name})` : "";
+    const fineText = s.totalLateFee > 0 ? ` *(รวมค่าปรับ +฿${s.totalLateFee.toLocaleString("th-TH")})*` : "";
+    return `${idx + 1}. 🔴 **${s.member.nickname}**${discordTag}${realName}: **ค้างจ่าย ฿${s.deficit.toLocaleString("th-TH")}**${fineText}`;
+  });
+
+  // Handle Discord 1024 char field limits by splitting lines into fields if necessary
+  const fields: Array<{ name: string; value: string; inline?: boolean }> = [];
+  let currentChunk: string[] = [];
+  let currentLength = 0;
+  let partIndex = 1;
+
+  for (const line of unpaidLines) {
+    if (currentLength + line.length + 1 > 1000) {
+      fields.push({
+        name: partIndex === 1 ? `📋 รายชื่อสมาชิกที่มียอดค้างชำระ (${unpaidList.length} คน)` : `📋 รายชื่อสมาชิกที่มียอดค้างชำระ (ต่อ - ส่วนที่ ${partIndex})`,
+        value: currentChunk.join("\n"),
+        inline: false,
+      });
+      partIndex++;
+      currentChunk = [line];
+      currentLength = line.length;
+    } else {
+      currentChunk.push(line);
+      currentLength += line.length + 1;
+    }
   }
 
-  const embedColor = unpaidList.length > 0 ? 0xef4444 : 0x10b981;
-  const cycleDetails = targetCycleLabel ? `\n⏰ ช่วงเวลารอบนี้: **${targetCycleLabel}**` : "\n⏰ ตัดรอบ: **ทุกวันจันทร์ เวลา 00:00 น.**";
-  const graceNote = (group.lateFeeGraceWeeks ?? 0) > 0 ? ` • ละเว้น ${group.lateFeeGraceWeeks} สัปดาห์แรกที่ค้าง` : "";
+  if (currentChunk.length > 0) {
+    fields.push({
+      name: partIndex === 1 ? `📋 รายชื่อสมาชิกที่มียอดค้างชำระ (${unpaidList.length} คน)` : `📋 รายชื่อสมาชิกที่มียอดค้างชำระ (ต่อ - ส่วนที่ ${partIndex})`,
+      value: currentChunk.join("\n"),
+      inline: false,
+    });
+  }
+
+  // Add total overdue amount field
+  fields.push({
+    name: "🔴 ยอดเงินค้างชำระรวมทั้งหมด",
+    value: `**฿${totalUnpaidAmount.toLocaleString("th-TH")}** (${unpaidList.length} คน)`,
+    inline: true,
+  });
 
   return {
-    title: isPrevious ? `📋 สรุปสถานะการโอนเงิน (อาทิตย์ก่อน): ${group.name}` : `📋 สรุปสถานะการโอนเงิน (รอบปัจจุบัน): ${group.name}`,
-    description: `📅 ${isPrevious ? "รอบอาทิตย์ก่อน" : "รอบสัปดาห์ปัจจุบัน"}: **${targetWeekLabel}**${cycleDetails}\n🎯 เป้าหมายคนละ: **฿${targetPerMember.toLocaleString("th-TH")}**${lateFeePerWeek > 0 ? ` (ค่าปรับจ่ายช้า ฿${lateFeePerWeek.toLocaleString("th-TH")}/สัปดาห์${graceNote})` : ""}\n💰 ยอดเงินรวมกองกลางทั้งหมด: **฿${totalFundBalance.toLocaleString("th-TH")}**`,
-    color: embedColor,
-    fields: [
-      {
-        name: isPrevious ? `❌ สมาชิกที่ค้างจ่ายในอาทิตย์ก่อน (${unpaidList.length} คน)` : `❌ ยังไม่โอน / ค้างชำระในรอบปัจจุบัน (${unpaidList.length} คน)`,
-        value: unpaidValue.length > 1024 ? unpaidValue.slice(0, 1020) + "..." : unpaidValue,
-        inline: false,
-      },
-      {
-        name: isPrevious ? `✅ โอนครบแล้วในอาทิตย์ก่อน (${paidList.length} คน)` : `✅ โอนครบแล้วในรอบปัจจุบัน (${paidList.length} คน)`,
-        value: paidValue.length > 1024 ? paidValue.slice(0, 1020) + "..." : paidValue,
-        inline: false,
-      },
-      {
-        name: "💰 ยอดเงินรวมกองกลางทั้งหมด",
-        value: `**฿${totalFundBalance.toLocaleString("th-TH")}**`,
-        inline: true,
-      },
-      {
-        name: "🔴 ยอดค้างชำระรวม",
-        value: `**฿${totalUnpaidAmount.toLocaleString("th-TH")}** (${unpaidList.length} คน${totalLateFeeAmount > 0 ? ` • ค่าปรับ ฿${totalLateFeeAmount.toLocaleString("th-TH")}` : ""})`,
-        inline: true,
-      },
-      {
-        name: "🟢 ยอดโอนเข้าในรอบนี้",
-        value: `**฿${totalPaidThisPeriod.toLocaleString("th-TH")}** / ฿${groupTotalTarget.toLocaleString("th-TH")} (ครบแล้ว ${paidList.length}/${members.length} คน)`,
-        inline: true,
-      },
-    ],
+    title: `🚨 แจ้งเตือนยอดค้างชำระ: ${group.name}`,
+    description: `📅 ประจำรอบ: **${targetWeekLabel}**\n🔴 **มียอดค้างชำระทั้งหมด ${unpaidList.length} คน • รวมเป็นเงิน ฿${totalUnpaidAmount.toLocaleString("th-TH")}**`,
+    color: 0xef4444,
+    fields,
     footer: {
-      text: "Group Money Tracker • แจ้งเตือนรายชื่อยอดค้าง",
+      text: "ระบบแจ้งเตือนยอดค้างอัตโนมัติ • โปรดตรวจสอบและโอนเงินเข้าก๊วน",
     },
     timestamp: new Date().toISOString(),
   };

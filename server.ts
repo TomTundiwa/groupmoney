@@ -710,6 +710,7 @@ app.post("/api/discord/notify-transaction", async (req, res) => {
 import {
   discordBotManager,
   buildCheckEmbed,
+  buildOverdueEmbed,
   buildBalanceEmbed,
   buildHelpEmbed,
   fetchGroupData,
@@ -805,10 +806,14 @@ app.post("/api/discord/command", async (req, res) => {
     ) {
       embed = buildCheckEmbed(data.group, data.members, data.transactions, "previous");
     } else if (
-      cmd.startsWith("!เช็ค") ||
-      cmd.startsWith("!check") ||
       cmd.startsWith("!ค้าง") ||
       cmd.startsWith("!หนี้") ||
+      cmd.startsWith("!overdue")
+    ) {
+      embed = buildOverdueEmbed(data.group, data.members, data.transactions, "current");
+    } else if (
+      cmd.startsWith("!เช็ค") ||
+      cmd.startsWith("!check") ||
       cmd.startsWith("!เช็คปัจจุบัน")
     ) {
       embed = buildCheckEmbed(data.group, data.members, data.transactions, "current");
@@ -913,7 +918,7 @@ app.post("/api/discord/notify-overdue", async (req, res) => {
       return res.status(404).json({ success: false, error: "ไม่พบข้อมูลกลุ่มหรือสมาชิกสำหรับสรุปยอดค้าง" });
     }
 
-    const embed = buildCheckEmbed(
+    const embed = buildOverdueEmbed(
       data.group,
       data.members,
       data.transactions,

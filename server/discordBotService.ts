@@ -244,6 +244,160 @@ export function buildCheckEmbed(
 }
 
 /**
+ * Dedicated Overdue Webhook Embed Builder
+ * Shows strictly the members who owe money and their overdue amount.
+ * Ignores everything else (no paid members list, no fund piggy bank total, no round progress).
+ */
+export function buildOverdueEmbed(
+  group: Group,
+  members: Member[],
+  transactions: Transaction[],
+  period: "current" | "previous" = "current"
+): DiscordEmbed {
+  const targetPerMember = Number(group.targetAmountPerMember) || 200;
+  const lateFeePerWeek = Number(group.lateFeePerWeek) || 0;
+  const isPrevious = period === "previous";
+
+  if (members.length === 0) {
+    return {
+      title: `🚨 แจ้งเตือนยอดค้างชำระ: ${group.name}`,
+      description: "ยังไม่มีสมาชิกในก๊วนนี้",
+      color: 0x64748B,
+      fields: [],
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  // Calculate carryover and debt status for each member
+  const memberStatuses = members.map((member) => {
+    const calc = calculateMemberCarryover(
+      member.id,
+      transactions,
+      targetPerMember,
+      group.createdAt,
+      lateFeePerWeek,
+      member.initialCarryover || 0,
+      member.customLateFee,
+      group.lateFeeGraceWeeks || 0,
+      member.customLateFeeGraceWeeks
+    );
+
+    const weeksCount = calc.weeksHistory.length;
+    let targetWeekData;
+    let deficit = 0;
+    let isPaidFully = false;
+    let rawPaid = 0;
+    let totalLateFee = 0;
+
+    if (isPrevious && weeksCount >= 2) {
+      targetWeekData = calc.weeksHistory[weeksCount - 2];
+      deficit = targetWeekData.deficit || 0;
+      isPaidFully = targetWeekData.isPaidFully && deficit <= 0;
+      rawPaid = targetWeekData.rawPaid || 0;
+      totalLateFee = targetWeekData.lateFee || 0;
+    } else {
+      targetWeekData = calc.weeksHistory[weeksCount - 1];
+      deficit = calc.currentWeekStatus.deficit || 0;
+      isPaidFully = calc.currentWeekStatus.isPaidFully && deficit <= 0;
+      rawPaid = calc.currentWeekStatus.rawPaidThisWeek || 0;
+      totalLateFee = calc.currentWeekStatus.lateFeeThisWeek || 0;
+    }
+
+    return {
+      member,
+      deficit,
+      isPaidFully,
+      rawPaid,
+      totalLateFee,
+      targetWeekData,
+    };
+  });
+
+  const unpaidList = memberStatuses.filter((s) => !s.isPaidFully || s.deficit > 0);
+  const totalUnpaidAmount = unpaidList.reduce((sum, s) => sum + s.deficit, 0);
+  const targetWeekLabel = memberStatuses[0]?.targetWeekData?.label || (isPrevious ? "อาทิตย์ก่อน" : "รอบปัจจุบัน");
+
+  if (unpaidList.length === 0) {
+    return {
+      title: `✅ สรุปยอดค้างชำระ: ${group.name}`,
+      description: `📅 ประจำรอบ: **${targetWeekLabel}**\n🎉 **สมาชิกทุกคนโอนเงินครบถ้วนแล้ว ไม่มีใครมียอดค้างชำระ**`,
+      color: 0x10B981,
+      fields: [
+        {
+          name: "สถานะการชำระเงิน",
+          value: "🟢 ยอดค้างชำระเป็น ฿0 ทุกคนชำระเงินครบถ้วนสมบูรณ์แล้ว",
+          inline: false,
+        },
+      ],
+      footer: {
+        text: "ระบบแจ้งเตือนยอดค้างอัตโนมัติ",
+      },
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  // Format list of unpaid members strictly: Name + Overdue amount
+  const unpaidLines = unpaidList.map((s, idx) => {
+    const discordTag = s.member.discordUserId
+      ? ` <@${s.member.discordUserId}>`
+      : s.member.discordUsername
+      ? ` (@${s.member.discordUsername})`
+      : "";
+    const realName = s.member.name && s.member.name !== s.member.nickname ? ` (${s.member.name})` : "";
+    const fineText = s.totalLateFee > 0 ? ` *(รวมค่าปรับ +฿${formatBaht(s.totalLateFee)})*` : "";
+    return `${idx + 1}. 🔴 **${s.member.nickname}**${discordTag}${realName}: **ค้างจ่าย ฿${formatBaht(s.deficit)}**${fineText}`;
+  });
+
+  // Handle Discord 1024 char field limits by splitting lines into fields if necessary
+  const fields: Array<{ name: string; value: string; inline?: boolean }> = [];
+  let currentChunk: string[] = [];
+  let currentLength = 0;
+  let partIndex = 1;
+
+  for (const line of unpaidLines) {
+    if (currentLength + line.length + 1 > 1000) {
+      fields.push({
+        name: partIndex === 1 ? `📋 รายชื่อสมาชิกที่มียอดค้างชำระ (${unpaidList.length} คน)` : `📋 รายชื่อสมาชิกที่มียอดค้างชำระ (ต่อ - ส่วนที่ ${partIndex})`,
+        value: currentChunk.join("\n"),
+        inline: false,
+      });
+      partIndex++;
+      currentChunk = [line];
+      currentLength = line.length;
+    } else {
+      currentChunk.push(line);
+      currentLength += line.length + 1;
+    }
+  }
+
+  if (currentChunk.length > 0) {
+    fields.push({
+      name: partIndex === 1 ? `📋 รายชื่อสมาชิกที่มียอดค้างชำระ (${unpaidList.length} คน)` : `📋 รายชื่อสมาชิกที่มียอดค้างชำระ (ต่อ - ส่วนที่ ${partIndex})`,
+      value: currentChunk.join("\n"),
+      inline: false,
+    });
+  }
+
+  // Add total overdue amount field
+  fields.push({
+    name: "🔴 ยอดเงินค้างชำระรวมทั้งหมด",
+    value: `**฿${formatBaht(totalUnpaidAmount)}** (${unpaidList.length} คน)`,
+    inline: true,
+  });
+
+  return {
+    title: `🚨 แจ้งเตือนยอดค้างชำระ: ${group.name}`,
+    description: `📅 ประจำรอบ: **${targetWeekLabel}**\n🔴 **มียอดค้างชำระทั้งหมด ${unpaidList.length} คน • รวมเป็นเงิน ฿${formatBaht(totalUnpaidAmount)}**`,
+    color: 0xEF4444,
+    fields,
+    footer: {
+      text: "ระบบแจ้งเตือนยอดค้างอัตโนมัติ • โปรดตรวจสอบและโอนเงินเข้าก๊วน",
+    },
+    timestamp: new Date().toISOString(),
+  };
+}
+
+/**
  * Generate embed for "!ยอดเงิน" or "!balance"
  * Shows current total balance, target, and recent transactions
  */
@@ -768,12 +922,26 @@ class DiscordBotManager {
             return;
           }
 
-          // Command: !เช็ค or !check or !ค้าง (Current week check)
+          // Command: !ค้าง or !หนี้ or !overdue (Strictly overdue money by name)
+          if (
+            content.startsWith("!ค้าง") ||
+            content.startsWith("!หนี้") ||
+            content.startsWith("!overdue")
+          ) {
+            const data = await fetchGroupData(groupId);
+            if (!data) {
+              await message.reply("⚠️ ไม่พบข้อมูลก๊วนออมเงินนี้");
+              return;
+            }
+            const embed = buildOverdueEmbed(data.group, data.members, data.transactions, "current");
+            await message.reply({ embeds: [embed] });
+            return;
+          }
+
+          // Command: !เช็ค or !check or !เช็คปัจจุบัน (Current week check)
           if (
             content.startsWith("!เช็ค") ||
             content.startsWith("!check") ||
-            content.startsWith("!ค้าง") ||
-            content.startsWith("!หนี้") ||
             content.startsWith("!เช็คปัจจุบัน")
           ) {
             const data = await fetchGroupData(groupId);
