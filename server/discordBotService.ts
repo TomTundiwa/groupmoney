@@ -314,23 +314,34 @@ export function buildOverdueEmbed(
   });
 
   const unpaidList = memberStatuses.filter((s) => !s.isPaidFully || s.deficit > 0);
+  const paidList = memberStatuses.filter((s) => s.isPaidFully && s.deficit <= 0);
   const totalUnpaidAmount = unpaidList.reduce((sum, s) => sum + s.deficit, 0);
   const targetWeekLabel = memberStatuses[0]?.targetWeekData?.label || (isPrevious ? "อาทิตย์ก่อน" : "รอบปัจจุบัน");
 
   if (unpaidList.length === 0) {
+    const paidLines = paidList.map((s, idx) => {
+      const discordTag = s.member.discordUserId
+        ? ` <@${s.member.discordUserId}>`
+        : s.member.discordUsername
+        ? ` (@${s.member.discordUsername})`
+        : "";
+      const realName = s.member.name && s.member.name !== s.member.nickname ? ` (${s.member.name})` : "";
+      return `${idx + 1}. 🟢 **${s.member.nickname}**${discordTag}${realName}: โอนครบถ้วนแล้ว`;
+    });
+
     return {
-      title: `✅ สรุปยอดค้างชำระ: ${group.name}`,
+      title: `✅ สรุปยอดการโอนเงิน: ${group.name}`,
       description: `📅 ประจำรอบ: **${targetWeekLabel}**\n🎉 **สมาชิกทุกคนโอนเงินครบถ้วนแล้ว ไม่มีใครมียอดค้างชำระ**`,
       color: 0x10B981,
       fields: [
         {
-          name: "สถานะการชำระเงิน",
-          value: "🟢 ยอดค้างชำระเป็น ฿0 ทุกคนชำระเงินครบถ้วนสมบูรณ์แล้ว",
+          name: `✅ รายชื่อสมาชิกที่จ่ายแล้วครบทุกคน (${paidList.length} คน)`,
+          value: paidLines.length > 0 ? paidLines.join("\n").slice(0, 1020) : "ทุกคนชำระเงินครบถ้วนแล้ว",
           inline: false,
         },
       ],
       footer: {
-        text: "ระบบแจ้งเตือนยอดค้างอัตโนมัติ",
+        text: "ระบบแจ้งเตือนยอดอัตโนมัติ",
       },
       timestamp: new Date().toISOString(),
     };
@@ -348,6 +359,18 @@ export function buildOverdueEmbed(
     return `${idx + 1}. 🔴 **${s.member.nickname}**${discordTag}${realName}: **ค้างจ่าย ฿${formatBaht(s.deficit)}**${fineText}`;
   });
 
+  // Format list of paid members
+  const paidLines = paidList.map((s, idx) => {
+    const discordTag = s.member.discordUserId
+      ? ` <@${s.member.discordUserId}>`
+      : s.member.discordUsername
+      ? ` (@${s.member.discordUsername})`
+      : "";
+    const realName = s.member.name && s.member.name !== s.member.nickname ? ` (${s.member.name})` : "";
+    const paidInfo = s.rawPaid > 0 ? ` (โอนแล้ว ฿${formatBaht(s.rawPaid)})` : "";
+    return `${idx + 1}. 🟢 **${s.member.nickname}**${discordTag}${realName}: ครบถ้วน${paidInfo}`;
+  });
+
   // Handle Discord 1024 char field limits by splitting lines into fields if necessary
   const fields: Array<{ name: string; value: string; inline?: boolean }> = [];
   let currentChunk: string[] = [];
@@ -357,7 +380,7 @@ export function buildOverdueEmbed(
   for (const line of unpaidLines) {
     if (currentLength + line.length + 1 > 1000) {
       fields.push({
-        name: partIndex === 1 ? `📋 รายชื่อสมาชิกที่มียอดค้างชำระ (${unpaidList.length} คน)` : `📋 รายชื่อสมาชิกที่มียอดค้างชำระ (ต่อ - ส่วนที่ ${partIndex})`,
+        name: partIndex === 1 ? `❌ ยังไม่โอน / ค้างชำระ (${unpaidList.length} คน)` : `❌ ยังไม่โอน / ค้างชำระ (ต่อ - ส่วนที่ ${partIndex})`,
         value: currentChunk.join("\n"),
         inline: false,
       });
@@ -372,8 +395,24 @@ export function buildOverdueEmbed(
 
   if (currentChunk.length > 0) {
     fields.push({
-      name: partIndex === 1 ? `📋 รายชื่อสมาชิกที่มียอดค้างชำระ (${unpaidList.length} คน)` : `📋 รายชื่อสมาชิกที่มียอดค้างชำระ (ต่อ - ส่วนที่ ${partIndex})`,
+      name: partIndex === 1 ? `❌ ยังไม่โอน / ค้างชำระ (${unpaidList.length} คน)` : `❌ ยังไม่โอน / ค้างชำระ (ต่อ - ส่วนที่ ${partIndex})`,
       value: currentChunk.join("\n"),
+      inline: false,
+    });
+  }
+
+  // Add paid members list field
+  if (paidLines.length > 0) {
+    const paidValue = paidLines.join("\n");
+    fields.push({
+      name: `✅ โอนครบแล้ว / จ่ายแล้ว (${paidList.length} คน)`,
+      value: paidValue.length > 1024 ? paidValue.slice(0, 1020) + "..." : paidValue,
+      inline: false,
+    });
+  } else {
+    fields.push({
+      name: "✅ โอนครบแล้ว / จ่ายแล้ว (0 คน)",
+      value: "ยังไม่มีสมาชิกโอนเงินครบในรอบนี้",
       inline: false,
     });
   }
