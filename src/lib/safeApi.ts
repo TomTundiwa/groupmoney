@@ -253,6 +253,7 @@ export function createClientOverdueEmbed(
   const unpaidList = memberStatuses.filter((s) => !s.isPaidFully || s.deficit > 0);
   const paidList = memberStatuses.filter((s) => s.isPaidFully && s.deficit <= 0);
   const totalUnpaidAmount = unpaidList.reduce((sum, s) => sum + s.deficit, 0);
+  const totalFundBalance = (transactions || []).reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
   const targetWeekLabel = memberStatuses[0]?.targetWeekData?.label || (isPrevious ? "อาทิตย์ก่อน" : "รอบปัจจุบัน");
 
   if (unpaidList.length === 0) {
@@ -268,13 +269,23 @@ export function createClientOverdueEmbed(
 
     return {
       title: `✅ สรุปยอดการโอนเงิน: ${group.name}`,
-      description: `📅 ประจำรอบ: **${targetWeekLabel}**\n🎉 **สมาชิกทุกคนโอนเงินครบถ้วนแล้ว ไม่มีใครมียอดค้างชำระ**`,
+      description: `📅 ประจำรอบ: **${targetWeekLabel}**\n💰 ยอดเงินรวมปัจจุบัน: **฿${totalFundBalance.toLocaleString("th-TH")}**\n🎉 **สมาชิกทุกคนโอนเงินครบถ้วนแล้ว ไม่มีใครมียอดค้างชำระ**`,
       color: 0x10b981,
       fields: [
         {
           name: `✅ รายชื่อสมาชิกที่จ่ายแล้วครบทุกคน (${paidList.length} คน)`,
           value: paidLines.length > 0 ? paidLines.join("\n").slice(0, 1020) : "ทุกคนชำระเงินครบถ้วนแล้ว",
           inline: false,
+        },
+        {
+          name: "💰 ยอดเงินรวมปัจจุบัน",
+          value: `**฿${totalFundBalance.toLocaleString("th-TH")}**`,
+          inline: true,
+        },
+        {
+          name: "🔴 ยอดค้างชำระ",
+          value: "**฿0** (ไม่มีคนค้าง)",
+          inline: true,
         },
       ],
       footer: {
@@ -354,16 +365,22 @@ export function createClientOverdueEmbed(
     });
   }
 
-  // Add total overdue amount field
+  // Add total fund balance (ยอดรวมปัจจุบัน) and overdue total
   fields.push({
-    name: "🔴 ยอดเงินค้างชำระรวมทั้งหมด",
+    name: "💰 ยอดเงินรวมปัจจุบัน (กองกลางสะสม)",
+    value: `**฿${totalFundBalance.toLocaleString("th-TH")}**`,
+    inline: true,
+  });
+
+  fields.push({
+    name: "🔴 ยอดเงินค้างชำระรวม",
     value: `**฿${totalUnpaidAmount.toLocaleString("th-TH")}** (${unpaidList.length} คน)`,
     inline: true,
   });
 
   return {
     title: `🚨 แจ้งเตือนยอดค้างชำระ: ${group.name}`,
-    description: `📅 ประจำรอบ: **${targetWeekLabel}**\n🔴 **มียอดค้างชำระทั้งหมด ${unpaidList.length} คน • รวมเป็นเงิน ฿${totalUnpaidAmount.toLocaleString("th-TH")}**`,
+    description: `📅 ประจำรอบ: **${targetWeekLabel}**\n💰 **ยอดเงินรวมปัจจุบัน: ฿${totalFundBalance.toLocaleString("th-TH")}**\n🔴 **มียอดค้างชำระทั้งหมด ${unpaidList.length} คน • รวมเป็นเงิน ฿${totalUnpaidAmount.toLocaleString("th-TH")}**`,
     color: 0xef4444,
     fields,
     footer: {
