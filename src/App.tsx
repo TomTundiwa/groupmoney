@@ -1871,7 +1871,8 @@ export default function App() {
         activeGroup.lateFeePerWeek || 0,
         member.initialCarryover || 0,
         member.customLateFee,
-        activeGroup.lateFeeGraceWeeks || 0
+        activeGroup.lateFeeGraceWeeks || 0,
+        member.customLateFeeGraceWeeks
       );
       if (carry.currentWeekStatus.deficit > 0) {
         debt += carry.currentWeekStatus.deficit;
@@ -2708,17 +2709,21 @@ export default function App() {
                       </div>
                     </div>
 
-                    {/* SECTION 2: Late Payment Fee Rules & Fine Exemption */}
+                    {/* SECTION 2: Late Payment Fee Rules & Fine Exemption (Grace Period) */}
                     <div className="bg-slate-950/60 border border-slate-800/80 rounded-2xl p-4 space-y-4">
                       <div className="flex items-center justify-between">
                         <h4 className="text-xs font-bold text-rose-400 uppercase tracking-wider flex items-center gap-1.5">
                           <AlertTriangle className="w-3.5 h-3.5 text-rose-400" />
                           <span>2. ตั้งค่าปรับจ่ายล่าช้า & การละเว้นค่าปรับ</span>
                         </h4>
-                        {editLateFeeGraceWeeks > 0 && (
+                        {editLateFeeGraceWeeks > 0 ? (
                           <span className="text-[10px] font-sans font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
                             <ShieldCheck className="w-3 h-3 text-emerald-400" />
                             ละเว้น {editLateFeeGraceWeeks} สัปดาห์
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-sans font-bold text-slate-400 bg-slate-800/50 border border-slate-700/50 px-2 py-0.5 rounded-full">
+                            ไม่ละเว้น (ปรับทันที)
                           </span>
                         )}
                       </div>
@@ -2816,7 +2821,7 @@ export default function App() {
                             </>
                           ) : (
                             <>
-                              ℹ️ สมาชิกที่มียอดค้างชำระข้ามสัปดาห์จะถูกคิดค่าปรับทันทีตั้งแต่สัปดาห์แรกที่มียอดค้าง
+                              ℹ️ สมาชิกที่มียอดค้างชำระจะถูกคิดค่าปรับทันทีตั้งแต่สัปดาห์แรกที่มียอดค้าง (ไม่มีการละเว้น)
                             </>
                           )}
                         </p>

@@ -303,7 +303,11 @@ export function createClientOverdueEmbed(
       ? ` (@${s.member.discordUsername})`
       : "";
     const realName = s.member.name && s.member.name !== s.member.nickname ? ` (${s.member.name})` : "";
-    const fineText = s.totalLateFee > 0 ? ` *(รวมค่าปรับ +฿${s.totalLateFee.toLocaleString("th-TH")})*` : "";
+    const fineText = s.totalLateFee > 0
+      ? ` *(รวมค่าปรับ +฿${s.totalLateFee.toLocaleString("th-TH")})*`
+      : s.isLateFeeWaived
+      ? ` *(🛡️ ละเว้นค่าปรับ)*`
+      : "";
     return `${idx + 1}. 🔴 **${s.member.nickname}**${discordTag}${realName}: **ค้างจ่าย ฿${s.deficit.toLocaleString("th-TH")}**${fineText}`;
   });
 

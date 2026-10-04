@@ -250,15 +250,15 @@ export function calculateMemberCarryover(
     let isLateFeeWaived = false;
     let waivedLateFeeAmount = 0;
 
-    // คิดค่าปรับเมื่อมีหนี้ค้าง (ไม่ว่าจะยกมาหรือยังจ่ายไม่ครบในสัปดาห์ปัจจุบัน) และมีการตั้งค่าปรับไว้
+    // คิดค่าปรับเมื่อมีหนี้ค้าง
     if ((hasCarriedDeficit || isUnpaidThisWeek) && effectiveLateFee > 0) {
       if (effectiveGraceWeeks > 0 && consecutiveOverdueWeeks <= effectiveGraceWeeks) {
-        // อยู่ในช่วงละเว้นค่าปรับ (Grace Period เช่น ละเว้น 1 สัปดาห์แรก)
+        // อยู่ในช่วงละเว้นค่าปรับที่ตั้งค่าไว้ในฟันเฟือง
         isLateFeeWaived = true;
         waivedLateFeeAmount = effectiveLateFee;
         lateFee = 0;
       } else {
-        // พ้นระยะเวลาละเว้น หรือตั้งค่าละเว้นเป็น 0 (คิดค่าปรับทันทีในอาทิตย์ปัจจุบันที่มีหนี้ค้าง)
+        // พ้นระยะเวลาละเว้น หรือไม่ได้ตั้งค่าละเว้น (คิดค่าปรับตามปกติ)
         lateFee = effectiveLateFee;
         isLateFeeWaived = false;
         waivedLateFeeAmount = 0;

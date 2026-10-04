@@ -303,12 +303,17 @@ export function buildOverdueEmbed(
       totalLateFee = calc.currentWeekStatus.lateFeeThisWeek || 0;
     }
 
+    const isLateFeeWaived = isPrevious && weeksCount >= 2
+      ? Boolean(targetWeekData?.isLateFeeWaived)
+      : Boolean(calc.currentWeekStatus.isLateFeeWaived);
+
     return {
       member,
       deficit,
       isPaidFully,
       rawPaid,
       totalLateFee,
+      isLateFeeWaived,
       targetWeekData,
     };
   });
@@ -366,7 +371,11 @@ export function buildOverdueEmbed(
       ? ` (@${s.member.discordUsername})`
       : "";
     const realName = s.member.name && s.member.name !== s.member.nickname ? ` (${s.member.name})` : "";
-    const fineText = s.totalLateFee > 0 ? ` *(รวมค่าปรับ +฿${formatBaht(s.totalLateFee)})*` : "";
+    const fineText = s.totalLateFee > 0
+      ? ` *(รวมค่าปรับ +฿${formatBaht(s.totalLateFee)})*`
+      : s.isLateFeeWaived
+      ? ` *(🛡️ ละเว้นค่าปรับ)*`
+      : "";
     return `${idx + 1}. 🔴 **${s.member.nickname}**${discordTag}${realName}: **ค้างจ่าย ฿${formatBaht(s.deficit)}**${fineText}`;
   });
 
